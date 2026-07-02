@@ -39,6 +39,20 @@ export const InteractionInput = z.object({
 
 export type InteractionInputT = z.infer<typeof InteractionInput>;
 
+// A named list / batch of contacts (e.g. "Batch — July 1 2026"). Only the
+// list's identity lives here; membership is stored on each contact as a
+// namespaced `list:<id>` tag — the same coexist-without-a-schema-change
+// trick used for stage:/icp:, so the existing tag filter finds members.
+export const ListInput = z.object({ name: z.string().min(1, "name is required") });
+export type ListInputT = z.infer<typeof ListInput>;
+
+export interface ContactList {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Interaction {
   id: string;
   contactId: string;

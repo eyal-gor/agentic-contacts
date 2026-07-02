@@ -44,6 +44,11 @@ export async function add(contactId: string, input: InteractionInputT): Promise<
   return interaction;
 }
 
+// Every interaction (for the calendar / activity views).
+export async function all(): Promise<Interaction[]> {
+  return load();
+}
+
 // One pass to find the latest interaction per contact — used to enrich list().
 export async function lastByContact(): Promise<Record<string, Interaction>> {
   const map: Record<string, Interaction> = {};

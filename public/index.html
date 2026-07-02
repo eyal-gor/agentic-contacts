@@ -4,148 +4,345 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Agentic Contacts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
-  /* Flat design: solid colors, no shadows, no gradients, no rounded depth. */
+  /* Linear-style: dark, dense, indigo accent, hairline borders, subtle depth. */
   :root {
-    --bg: #ecf0f1; --surface: #ffffff; --ink: #2c3e50; --mut: #7f8c8d;
-    --line: #dfe4e6; --accent: #3498db;
-    --lead:#95a5a6; --contacted:#3498db; --call:#9b59b6; --trial:#f1c40f;
-    --proposal:#e67e22; --won:#2ecc71; --lost:#bdc3c7;
-    --over:#e74c3c; --soon:#f39c12; --ok:#2ecc71;
+    color-scheme: dark;
+    --bg:#0b0c0e; --sidebar:#0d0e10; --surface:#151619; --elevated:#1b1d22;
+    --border:#26282e; --border-soft:#1d1f24;
+    --ink:#f0f1f2; --text:#f0f1f2; --mut:#8a8f98; --muted:#8a8f98; --faint:#5c6169;
+    --accent:#5e6ad2; --accent-hover:#6c78e0;
+    --lead:#7a7f88; --contacted:#4c9aff; --call:#b28bff; --trial:#e0c150;
+    --proposal:#f0955a; --won:#4cc38a; --lost:#5c6169;
+    --over:#eb5757; --soon:#e0c150; --ok:#4cc38a;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    padding: 12px 20px; background: var(--surface); position: sticky; top: 0; z-index: 5; }
-  h1 { font-size: 17px; margin: 0; font-weight: 700; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.5 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; }
+  ::selection { background: rgba(94,106,210,.35); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2a2c33; border-radius: 6px; border: 2px solid var(--bg); }
+  input[type=checkbox] { accent-color: var(--accent); }
+
+  .app { display: flex; height: 100vh; }
+
+  /* ── sidebar ── */
+  .sidebar { width: 232px; flex: 0 0 232px; background: var(--sidebar);
+    border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 4px 6px 14px; }
+  .ws-badge { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-weight: 600; font-size: 12px; }
+  .ws-name { font-weight: 600; font-size: 13px; }
+  .nav { display: flex; flex-direction: column; gap: 1px; }
+  .nav button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+    background: transparent; border: 0; color: var(--muted); font: inherit; font-weight: 500;
+    padding: 7px 9px; border-radius: 6px; cursor: pointer; transition: background .1s, color .1s; }
+  .nav button:hover { background: rgba(255,255,255,.04); color: var(--text); }
+  .nav button.on { background: rgba(255,255,255,.07); color: var(--text); }
+  .nav button::before { content: ""; width: 6px; height: 6px; border-radius: 2px; background: currentColor; opacity: .55; }
+  .side-label { color: var(--faint); font-size: 11px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: .06em; padding: 16px 9px 6px; }
+
+  /* ── main ── */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { display: flex; align-items: center; gap: 10px; height: 48px; flex: 0 0 48px;
+    padding: 0 16px; border-bottom: 1px solid var(--border);
+    background: rgba(11,12,14,.7); backdrop-filter: blur(10px); }
+  .view-title { font-weight: 600; font-size: 14px; text-transform: capitalize; }
   .grow { flex: 1; }
-  .seg { display: inline-flex; }
-  .seg button { background: #d6dbdd; color: var(--ink); border: 0; padding: 7px 14px;
-    cursor: pointer; font: inherit; font-weight: 600; }
-  .seg button.on { background: var(--accent); color: #fff; }
-  .toggle { color: var(--mut); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-weight: 600; }
-  .iconbtn { background: var(--accent); border: 0; color: #fff; padding: 7px 14px; cursor: pointer; font: inherit; font-weight: 600; }
-  .iconbtn.ghost { background: #d6dbdd; color: var(--ink); }
-  .search { background: #eef1f2; border: 0; padding: 8px 12px; font: inherit; color: var(--ink); width: 240px; }
-  .search:focus { outline: 0; background: #e3e8ea; }
-  .search::placeholder { color: var(--mut); }
-  select.flat { background: #eef1f2; border: 0; padding: 7px 10px; font: inherit; color: var(--ink); font-weight: 600; }
-  .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px 20px 0; }
+  .muted { color: var(--muted); }
   .hide { display: none !important; }
+  .scroll { flex: 1; overflow-y: auto; }
 
-  /* Contacts list */
-  .clist { padding: 12px 20px 28px; display: flex; flex-direction: column; gap: 6px; }
-  .crow { background: var(--surface); border-left: 4px solid var(--mut); padding: 10px 14px;
-    display: grid; grid-template-columns: 1.4fr 1.3fr 1fr; gap: 12px; align-items: center; cursor: pointer; }
-  .crow:hover { background: #f6f9fa; }
-  .crow .nm { font-weight: 700; } .crow .co { color: var(--mut); }
-  .crow .tags { display: flex; flex-wrap: wrap; gap: 4px; }
-  .crow .meta { color: var(--mut); font-size: 12.5px; text-align: right; }
+  .search { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; font: inherit; color: var(--text); width: 260px; }
+  .search:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94,106,210,.18); }
+  .search::placeholder { color: var(--faint); }
 
-  /* Pipeline board */
-  .board { display: flex; gap: 12px; padding: 16px 20px; overflow-x: auto; align-items: flex-start; }
-  .col { background: transparent; min-width: 250px; width: 250px; flex: 0 0 auto;
-    display: flex; flex-direction: column; max-height: calc(100vh - 180px); }
-  .col h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #fff;
-    margin: 0; padding: 10px 14px; display: flex; justify-content: space-between; font-weight: 700; background: var(--mut); }
-  .col h2 .cnt { color: #fff; opacity: .85; }
-  .col[data-stage=lead] h2{background:var(--lead)} .col[data-stage=contacted] h2{background:var(--contacted)}
-  .col[data-stage=call] h2{background:var(--call)} .col[data-stage=trial] h2{background:var(--trial);color:#2c3e50}
-  .col[data-stage=trial] h2 .cnt{color:#2c3e50}
-  .col[data-stage=proposal] h2{background:var(--proposal)} .col[data-stage=won] h2{background:var(--won)}
-  .col[data-stage=lost] h2{background:var(--lost);color:#2c3e50} .col[data-stage=lost] h2 .cnt{color:#2c3e50}
-  .drop { padding: 10px; overflow-y: auto; flex: 1; min-height: 60px; background: #e2e7e9; }
-  .col.dragover .drop { background: #d0d9db; }
-  .card { background: var(--surface); border-left: 4px solid var(--mut); padding: 10px 12px; margin-bottom: 8px; cursor: grab; }
-  .col[data-stage=lead] .card{border-left-color:var(--lead)} .col[data-stage=contacted] .card{border-left-color:var(--contacted)}
-  .col[data-stage=call] .card{border-left-color:var(--call)} .col[data-stage=trial] .card{border-left-color:var(--trial)}
-  .col[data-stage=proposal] .card{border-left-color:var(--proposal)} .col[data-stage=won] .card{border-left-color:var(--won)}
-  .col[data-stage=lost] .card{border-left-color:var(--lost)}
+  .btn, .iconbtn { background: var(--accent); color: #fff; border: 1px solid transparent; border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; font: inherit; font-weight: 500; transition: background .12s;
+    white-space: nowrap; line-height: 1.2; }
+  .topbar .btn { flex: 0 0 auto; }
+  .btn:hover, .iconbtn:hover { background: var(--accent-hover); }
+  .btn.ghost, .iconbtn.ghost { background: transparent; border-color: var(--border); color: var(--muted); }
+  .btn.ghost:hover, .iconbtn.ghost:hover { color: var(--text); border-color: #33363d; background: rgba(255,255,255,.03); }
+  .btn.danger { background: rgba(235,87,87,.14); color: #ef8f8f; border-color: rgba(235,87,87,.3); }
+  .btn.danger:hover { background: rgba(235,87,87,.22); }
+
+  select.flat { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; font: inherit; color: var(--text); font-weight: 500; cursor: pointer; }
+  select.flat:focus { outline: 0; border-color: var(--accent); }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 14px 18px 0; }
+  .seg { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button { background: transparent; color: var(--muted); border: 0; padding: 6px 12px;
+    cursor: pointer; font: inherit; font-weight: 500; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .toggle { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-weight: 500; }
+
+  /* ── contacts / list rows ── */
+  .clist { padding: 8px 18px 32px; display: flex; flex-direction: column; }
+  .crow { display: grid; grid-template-columns: 1.4fr 1.3fr 1fr; gap: 12px; align-items: center;
+    padding: 10px 12px; border-bottom: 1px solid var(--border-soft); border-left: 2px solid transparent;
+    cursor: pointer; transition: background .1s; }
+  .crow:hover { background: var(--surface); }
+  .crow.sel, .out-card.sel { box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--surface); }
+  .crow .nm { font-weight: 500; color: var(--text); }
+  .crow .co { color: var(--muted); font-size: 12.5px; }
+  .crow .li { font-size: 11px; color: var(--accent); text-decoration: none; margin-left: 6px;
+    background: rgba(94,106,210,.12); padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+  .crow .li:hover { background: rgba(94,106,210,.22); }
+  .crow .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .crow .meta { color: var(--muted); font-size: 12px; text-align: right; display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+
+  /* ── pills / chips ── */
+  .pill { font-size: 11px; padding: 2px 7px; border-radius: 5px; font-weight: 500;
+    background: rgba(255,255,255,.06); color: var(--muted); display: inline-flex; align-items: center; white-space: nowrap; }
+  .pill.stage { background: rgba(255,255,255,.09); color: var(--text); }
+  .pill.icp { background: rgba(94,106,210,.16); color: #a9b2f2; }
+  .pill.circle { font-weight: 600; }
+  .pill.circle.c1 { background: var(--accent); color: #fff; }
+  .pill.circle.c2 { background: rgba(224,193,80,.2); color: var(--soon); }
+  .pill.circle.c3 { background: rgba(255,255,255,.08); color: var(--muted); }
+  html[data-theme="light"] .pill.circle.c2 { background: rgba(202,160,49,.18); color: #856819; }
+  html[data-theme="light"] .pill.circle.c3 { background: rgba(0,0,0,.06); color: var(--muted); }
+  .pill.next.over { background: rgba(235,87,87,.16); color: #f09a9a; }
+  .pill.next.soon { background: rgba(224,193,80,.16); color: #e6cf78; }
+  .pill.next.ok { background: rgba(76,195,138,.15); color: #84d6ac; }
+  .empty { color: var(--faint); text-align: center; padding: 28px 0; }
+
+  /* ── outreach ── */
+  .out-list { padding: 12px 18px 32px; display: flex; flex-direction: column; gap: 10px; }
+  .out-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 13px 15px;
+    display: flex; flex-direction: column; gap: 9px; }
+  .out-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
+  .out-head b { font-weight: 600; }
+  .out-head .co { color: var(--muted); font-weight: 400; }
+  .out-head .li { font-size: 11px; color: var(--accent); text-decoration: none; margin-left: 4px;
+    background: rgba(94,106,210,.12); padding: 1px 7px; border-radius: 4px; font-weight: 500; }
+  .out-why { color: var(--faint); font-size: 12px; margin-top: -3px; }
+  .out-msg { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 8px 10px; font: inherit; font-size: 13px; min-height: 58px; resize: vertical; }
+  .out-msg:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94,106,210,.18); }
+  .out-actions { display: flex; align-items: center; gap: 8px; }
+
+  /* ── calendar ── */
+  .cal-title { font-weight: 600; font-size: 14px; }
+  .cal-legend { display: flex; gap: 14px; color: var(--muted); font-size: 12px; }
+  .cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .cal-legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .cal { padding: 12px 18px 28px; }
+  .cal-dow { display: grid; grid-template-columns: repeat(7,1fr); gap: 6px; margin-bottom: 6px; }
+  .cal-dow div { color: var(--faint); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; padding: 0 4px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 6px; }
+  .cal-cell { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    min-height: 104px; padding: 6px 7px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+  .cal-cell.other { background: transparent; border-color: var(--border-soft); }
+  .cal-cell.other .cal-day { color: var(--faint); }
+  .cal-cell.today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .cal-day { font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 1px; }
+  .cal-cell.today .cal-day { color: var(--accent); font-weight: 600; }
+  .cal-ev { font-size: 11px; padding: 2px 6px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; border-left: 2px solid var(--mut); background: rgba(120,130,150,.1); color: var(--text); }
+  .cal-ev:hover { filter: brightness(1.15); }
+  .cal-ev.added { border-left-color: var(--won); }
+  .cal-ev.follow-up { border-left-color: var(--soon); }
+  .cal-ev.contacted { border-left-color: var(--contacted); }
+  .cal-more { font-size: 11px; color: var(--muted); padding: 1px 6px; cursor: default; }
+
+  /* ── pipeline board ── */
+  .board { display: flex; gap: 14px; padding: 16px 18px; overflow-x: auto; align-items: flex-start; }
+  .col { min-width: 262px; width: 262px; flex: 0 0 auto; display: flex; flex-direction: column; max-height: calc(100vh - 150px); }
+  .col h2 { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 8px 10px;
+    font-size: 13px; font-weight: 600; color: var(--text); text-transform: capitalize; }
+  .col h2 .cnt { color: var(--faint); font-weight: 500; margin-left: auto; }
+  .col h2::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--mut); }
+  .col[data-stage=lead] h2::before{background:var(--lead)} .col[data-stage=contacted] h2::before{background:var(--contacted)}
+  .col[data-stage=call] h2::before{background:var(--call)} .col[data-stage=trial] h2::before{background:var(--trial)}
+  .col[data-stage=proposal] h2::before{background:var(--proposal)} .col[data-stage=won] h2::before{background:var(--won)}
+  .col[data-stage=lost] h2::before{background:var(--lost)}
+  .drop { padding: 4px 0; overflow-y: auto; flex: 1; min-height: 60px; border-radius: 8px; }
+  .col.dragover .drop { background: rgba(255,255,255,.03); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 11px; margin-bottom: 8px; cursor: grab; transition: border-color .1s; }
+  .card:hover { border-color: #33363d; }
   .card:active { cursor: grabbing; }
-  .card .nm { font-weight: 700; } .card .co { color: var(--mut); font-size: 12.5px; }
-  .card .meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; align-items: center; }
+  .card .nm { font-weight: 500; color: var(--text); } .card .co { color: var(--muted); font-size: 12px; }
+  .card .meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; align-items: center; }
 
-  .pill { font-size: 11px; padding: 2px 8px; color: #fff; background: var(--mut); font-weight: 600; }
-  .pill.icp { background: var(--accent); }
-  .pill.stage { background: var(--ink); }
-  .pill.next.over { background: var(--over); } .pill.next.soon { background: var(--soon); color: #2c3e50; }
-  .pill.next.ok { background: var(--ok); }
-  .empty { color: var(--mut); text-align: center; padding: 24px 0; }
-
-  /* modal / detail */
-  .scrim { position: fixed; inset: 0; background: rgba(44,62,80,.5); display: none; align-items: center; justify-content: center; z-index: 20; }
+  /* ── modal ── */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(3px);
+    display: none; align-items: center; justify-content: center; z-index: 20; }
   .scrim.on { display: flex; }
-  .modal { background: var(--surface); width: 540px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px);
-    overflow: auto; padding: 20px 22px; border-top: 5px solid var(--accent); }
-  .modal h3 { margin: 0 0 2px; font-weight: 700; }
-  .modal .sub { color: var(--mut); margin-bottom: 14px; }
-  .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .modal { background: var(--elevated); width: 540px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px);
+    overflow: auto; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+  .modal h3 { margin: 0 0 1px; font-weight: 600; font-size: 16px; }
+  .modal .sub { color: var(--muted); margin-bottom: 12px; font-size: 12.5px; }
+  .row { display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
   .row > div { flex: 1; min-width: 140px; }
-  label { display: block; font-size: 12px; color: var(--mut); margin-bottom: 4px; font-weight: 600; }
-  input, textarea, select.field { width: 100%; background: var(--bg); border: 0; border-bottom: 2px solid var(--line);
-    color: var(--ink); padding: 8px 10px; font: inherit; }
-  input:focus, textarea:focus, select.field:focus { outline: 0; border-bottom-color: var(--accent); }
-  textarea { min-height: 64px; resize: vertical; }
-  .btn { background: var(--accent); color: #fff; border: 0; padding: 9px 16px; cursor: pointer; font: inherit; font-weight: 700; }
-  .btn.ghost { background: #d6dbdd; color: var(--ink); }
-  .btn.danger { background: var(--over); color: #fff; }
+  label { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 3px; font-weight: 500; }
+  input:not([type=checkbox]):not([type=radio]), textarea, select.field { width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 6px 9px; font: inherit; }
+  input:not([type=checkbox]):not([type=radio]):focus, textarea:focus, select.field:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94,106,210,.18); }
+  textarea { min-height: 50px; resize: vertical; }
+  #dLists .toggle { white-space: nowrap; font-size: 12.5px; }
+  .guess-list { display: flex; flex-direction: column; gap: 3px; }
+  .guess { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer;
+    padding: 4px 8px; border-radius: 6px; border: 1px solid transparent; }
+  .guess:hover { background: var(--bg); border-color: var(--border); }
+  .guess span { font-family: var(--mono, "SF Mono", Menlo, monospace); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
-  .hist { border-top: 2px solid var(--line); margin-top: 16px; padding-top: 10px; }
-  .hist .it { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
-  .hist .it .w { color: var(--mut); white-space: nowrap; font-size: 12px; }
-  .x { float: right; cursor: pointer; color: var(--mut); font-size: 22px; line-height: 1; font-weight: 700; }
-  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff;
-    padding: 10px 18px; font-weight: 600; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; }
+  .hist { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
+  .hist .it { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
+  .hist .it .w { color: var(--muted); white-space: nowrap; font-size: 12px; }
+  .x { float: right; cursor: pointer; color: var(--muted); font-size: 22px; line-height: 1; font-weight: 400; }
+  .x:hover { color: var(--text); }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--elevated);
+    border: 1px solid var(--border); color: var(--text); padding: 9px 16px; border-radius: 8px; font-weight: 500;
+    opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
   .toast.on { opacity: 1; }
+
+  /* ── lite (light) theme — same Linear language, inverted ── */
+  html[data-theme="light"] {
+    color-scheme: light;
+    --bg:#ffffff; --sidebar:#f7f8fa; --surface:#f5f6f8; --elevated:#ffffff;
+    --border:#e6e8ec; --border-soft:#eef0f3;
+    --ink:#1c1d21; --text:#1c1d21; --mut:#616873; --muted:#616873; --faint:#9aa0a8;
+    --accent:#5e6ad2; --accent-hover:#4f5ac2;
+    --lead:#8a8f98; --contacted:#3b82f6; --call:#8b5cf6; --trial:#caa031;
+    --proposal:#e8833a; --won:#2fa968; --lost:#b0b4bb;
+    --over:#e5484d; --soon:#caa031; --ok:#2fa968;
+  }
+  html[data-theme="light"] .topbar { background: rgba(255,255,255,.72); }
+  html[data-theme="light"] .nav button:hover { background: rgba(0,0,0,.04); }
+  html[data-theme="light"] .nav button.on { background: rgba(0,0,0,.06); }
+  html[data-theme="light"] .pill { background: rgba(0,0,0,.055); color: var(--muted); }
+  html[data-theme="light"] .pill.stage { background: rgba(0,0,0,.08); color: var(--text); }
+  html[data-theme="light"] .pill.icp { background: rgba(94,106,210,.12); color: #4a55b8; }
+  html[data-theme="light"] .pill.next.over { background: rgba(229,72,77,.12); color: #c0343a; }
+  html[data-theme="light"] .pill.next.soon { background: rgba(202,160,49,.18); color: #856819; }
+  html[data-theme="light"] .pill.next.ok { background: rgba(47,169,104,.14); color: #1e7a4a; }
+  html[data-theme="light"] .card:hover { border-color: #d4d7dd; }
+  html[data-theme="light"] .btn.ghost:hover { border-color: #d4d7dd; background: rgba(0,0,0,.03); }
+  html[data-theme="light"] .modal { box-shadow: 0 24px 70px rgba(20,22,40,.18); }
+  html[data-theme="light"] .toast { box-shadow: 0 10px 30px rgba(20,22,40,.15); }
+  html[data-theme="light"] ::-webkit-scrollbar-thumb { background: #d4d7dd; border-color: var(--bg); }
+  #themeBtn::before { display: none; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Agentic Contacts</h1>
-  <div class="seg" id="nav">
-    <button data-view="contacts" class="on">Contacts</button>
-    <button data-view="pipeline">Pipeline</button>
-  </div>
-  <input class="search" id="search" placeholder="Search name / company / tag / notes…" />
-  <div class="grow"></div>
-  <span id="stat" style="color:var(--mut)"></span>
-  <button class="iconbtn" id="newBtn">+ New</button>
-  <button class="iconbtn ghost" id="refresh">Refresh</button>
-</header>
-
-<!-- CONTACTS VIEW -->
-<section id="viewContacts">
-  <div class="toolbar">
-    <select class="flat" id="tagFilter"><option value="">All tags</option></select>
-    <select class="flat" id="sort">
-      <option value="name">Sort: Name</option>
-      <option value="recent">Sort: Recently talked</option>
-      <option value="stale">Sort: Neglected first</option>
-      <option value="next">Sort: Follow-up due</option>
-    </select>
-    <span id="cstat" style="color:var(--mut)"></span>
-  </div>
-  <div class="clist" id="clist"></div>
-</section>
-
-<!-- PIPELINE VIEW -->
-<section id="viewPipeline" class="hide">
-  <div class="toolbar">
-    <div class="seg" id="icp">
-      <button data-icp="" class="on">All ICP</button>
-      <button data-icp="dev">dev</button>
-      <button data-icp="biz">biz</button>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand"><div class="ws-badge">A</div><div class="ws-name">Agentic Contacts</div></div>
+    <div class="side-label">Views</div>
+    <nav class="nav" id="nav">
+      <button data-view="contacts" class="on">Contacts</button>
+      <button data-view="outreach">Outreach today</button>
+      <button data-view="calendar">Calendar</button>
+      <button data-view="pipeline">Pipeline</button>
+      <button data-view="lists">Lists</button>
+    </nav>
+    <div class="nav" style="margin-top:auto">
+      <button id="themeBtn">◐ Light mode</button>
     </div>
-    <div class="seg" id="due">
-      <button data-due="" class="on">Any date</button>
-      <button data-due="over">Overdue</button>
-      <button data-due="week">Due ≤7d</button>
-    </div>
-    <label class="toggle"><input type="checkbox" id="showAll" /> show non-sales</label>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <header class="topbar">
+      <input class="search" id="search" placeholder="Search name / company / tag / notes…" />
+      <div class="grow"></div>
+      <span id="stat" class="muted"></span>
+      <button class="btn" id="newBtn">+ New</button>
+      <button class="btn ghost" id="refresh">Refresh</button>
+    </header>
+
+    <!-- CONTACTS VIEW -->
+    <section id="viewContacts" class="scroll">
+      <div class="toolbar" id="listBanner" style="display:none">
+        <span class="pill icp">In list: <b id="listBannerName" style="margin-left:4px"></b></span>
+        <span class="toggle" id="clearListFilter" style="cursor:pointer">✕ clear</span>
+      </div>
+      <div class="toolbar">
+        <select class="flat" id="tagFilter"><option value="">All tags</option></select>
+        <select class="flat" id="sort">
+          <option value="name">Sort: Name</option>
+          <option value="recent">Sort: Recently talked</option>
+          <option value="stale">Sort: Neglected first</option>
+          <option value="next">Sort: Follow-up due</option>
+        </select>
+        <span id="cstat" class="muted"></span>
+      </div>
+      <div class="clist" id="clist"></div>
+    </section>
+
+    <!-- OUTREACH VIEW -->
+    <section id="viewOutreach" class="scroll hide">
+      <div class="toolbar">
+        <span class="cal-title" id="outTitle"></span>
+        <div class="grow"></div>
+        <span id="outProgress" class="muted"></span>
+        <button class="btn ghost" id="outReroll">Suggest 10</button>
+      </div>
+      <div class="out-list" id="outList"></div>
+    </section>
+
+    <!-- CALENDAR VIEW -->
+    <section id="viewCalendar" class="scroll hide">
+      <div class="toolbar">
+        <div class="seg" id="calNav">
+          <button data-cal="prev">‹</button>
+          <button data-cal="today">Today</button>
+          <button data-cal="next">›</button>
+        </div>
+        <span class="cal-title" id="calTitle"></span>
+        <div class="grow"></div>
+        <span class="cal-legend">
+          <span><i class="dot" style="background:var(--contacted)"></i>contacted</span>
+          <span><i class="dot" style="background:var(--won)"></i>added</span>
+          <span><i class="dot" style="background:var(--soon)"></i>follow-up</span>
+        </span>
+      </div>
+      <div class="cal" id="cal"></div>
+    </section>
+
+    <!-- PIPELINE VIEW -->
+    <section id="viewPipeline" class="scroll hide">
+      <div class="toolbar">
+        <div class="seg" id="icp">
+          <button data-icp="" class="on">All ICP</button>
+          <button data-icp="dev">dev</button>
+          <button data-icp="biz">biz</button>
+        </div>
+        <div class="seg" id="due">
+          <button data-due="" class="on">Any date</button>
+          <button data-due="over">Overdue</button>
+          <button data-due="week">Due ≤7d</button>
+        </div>
+        <label class="toggle"><input type="checkbox" id="showAll" /> show non-sales</label>
+      </div>
+      <div class="board" id="board"></div>
+    </section>
+
+    <!-- LISTS VIEW -->
+    <section id="viewLists" class="scroll hide">
+      <div class="toolbar">
+        <button class="iconbtn" id="newListBtn">+ New list</button>
+        <span id="lstat" class="muted"></span>
+      </div>
+      <div class="clist" id="llist"></div>
+    </section>
   </div>
-  <div class="board" id="board"></div>
-</section>
+</div>
 
 <div class="scrim" id="scrim"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
@@ -153,11 +350,18 @@
 <script>
 const STAGES = ["lead","contacted","call","trial","proposal","won","lost"];
 const NON_SALES = ["advice","recruiting","do-not-contact"];
-const TODAY = "2026-06-24"; // server "today"; UI compares date strings
+const TODAY = new Date().toISOString().slice(0,10); // real today; UI compares date strings
 let CONTACTS = [];
+let LISTS = [];
+let EVENTS = [];
 let view = "contacts";
-let icpFilter = "", dueFilter = "", search = "", tagFilter = "", sortBy = "name";
+let icpFilter = "", dueFilter = "", search = "", tagFilter = "", sortBy = "name", listFilter = "";
 let detailId = null;
+let calY = +TODAY.slice(0,4), calM = +TODAY.slice(5,7) - 1; // calendar month (0-indexed)
+let calExpanded = new Set(); // ISO dates whose "+N more" has been expanded to show all events
+const NOW_DATE = new Date().toISOString().slice(0,10); // real today, for the outreach batch
+const outSkipped = new Set(); // ids skipped this session (not tagged/logged)
+let selIdx = -1; // keyboard-highlighted row index in the current list view
 
 const $ = (s, r=document) => r.querySelector(s);
 const api = async (path, init) => {
@@ -168,7 +372,10 @@ const api = async (path, init) => {
 };
 const stageOf = c => (c.tags||[]).find(t=>t.startsWith("stage:"))?.slice(6) || null;
 const icpOf   = c => (c.tags||[]).find(t=>t.startsWith("icp:"))?.slice(4) || null;
-const freeTags = c => (c.tags||[]).filter(t=>!t.startsWith("stage:")&&!t.startsWith("icp:"));
+const circleOf = c => (c.tags||[]).find(t=>t.startsWith("circle:"))?.slice(7) || null;
+const freeTags = c => (c.tags||[]).filter(t=>!t.startsWith("stage:")&&!t.startsWith("icp:")&&!t.startsWith("list:")&&!t.startsWith("circle:"));
+const listIdsOf = c => (c.tags||[]).filter(t=>t.startsWith("list:")).map(t=>t.slice(5));
+const listName = id => (LISTS.find(l=>l.id===id)||{}).name || id;
 const esc = s => (s??"").replace(/[&<>"]/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
 const lastDate = c => c.lastInteraction?.occurredAt?.slice(0,10) || "";
 function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("on"); setTimeout(()=>t.classList.remove("on"),1600); }
@@ -181,7 +388,11 @@ function matchesSearch(c){
     .filter(Boolean).some(v => String(v).toLowerCase().includes(q));
 }
 
-async function load(){ CONTACTS = (await api("/contacts?limit=1000")).contacts; rebuildTagFilter(); renderActive(); }
+async function load(){
+  const [cs, ls, ev] = await Promise.all([api("/contacts?limit=1000"), api("/lists"), api("/events")]);
+  CONTACTS = cs.contacts; LISTS = ls.lists; EVENTS = ev.events;
+  rebuildTagFilter(); renderActive();
+}
 
 function rebuildTagFilter(){
   const sel = $("#tagFilter"); const cur = sel.value;
@@ -189,11 +400,21 @@ function rebuildTagFilter(){
   sel.innerHTML = `<option value="">All tags</option>` + tags.map(t=>`<option ${t===cur?"selected":""}>${esc(t)}</option>`).join("");
 }
 
-function renderActive(){ view === "pipeline" ? renderPipeline() : renderContacts(); }
+function renderActive(){
+  if (view === "pipeline") return renderPipeline();
+  if (view === "lists") return renderLists();
+  if (view === "calendar") return renderCalendar();
+  if (view === "outreach") return renderOutreach();
+  renderContacts();
+}
 
 /* ---------- Contacts view ---------- */
 function renderContacts(){
+  const banner = $("#listBanner");
+  if (listFilter){ banner.style.display=""; $("#listBannerName").textContent = listName(listFilter); }
+  else banner.style.display="none";
   let cs = CONTACTS.filter(matchesSearch);
+  if (listFilter) cs = cs.filter(c => listIdsOf(c).includes(listFilter));
   if (tagFilter) cs = cs.filter(c => (c.tags||[]).includes(tagFilter));
   cs.sort((a,b)=>{
     if (sortBy==="name") return a.name.localeCompare(b.name);
@@ -205,12 +426,13 @@ function renderContacts(){
   const box = $("#clist"); box.innerHTML = "";
   if (!cs.length) box.innerHTML = `<div class="empty">No contacts match.</div>`;
   for (const c of cs){
-    const st = stageOf(c), icp = icpOf(c), nc = nextClass(c.followUpAt);
+    const st = stageOf(c), icp = icpOf(c), circle = circleOf(c), nc = nextClass(c.followUpAt);
     const el = document.createElement("div"); el.className="crow"; el.dataset.id=c.id;
     el.style.borderLeftColor = st ? `var(--${st})` : "var(--mut)";
     el.innerHTML = `
-      <div><span class="nm">${esc(c.name)}</span>${c.company?` <span class="co">· ${esc(c.company)}</span>`:""}${c.title?`<div class="co">${esc(c.title)}</div>`:""}</div>
+      <div><span class="nm">${esc(c.name)}</span>${c.company?` <span class="co">· ${esc(c.company)}</span>`:""}${c.linkedin?` <a class="li" href="${esc(c.linkedin)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">in↗</a>`:""}${c.title?`<div class="co">${esc(c.title)}</div>`:""}</div>
       <div class="tags">
+        ${circle?`<span class="pill circle c${circle}" title="circle ${circle}">${circle}°</span>`:""}
         ${st?`<span class="pill stage">${st}</span>`:""}
         ${icp?`<span class="pill icp">icp:${esc(icp)}</span>`:""}
         ${freeTags(c).map(t=>`<span class="pill">${esc(t)}</span>`).join("")}
@@ -219,11 +441,214 @@ function renderContacts(){
         ${lastDate(c)?`last ${lastDate(c)}`:"never talked"}
         ${c.followUpAt?` · <span class="pill next ${nc}">next ${c.followUpAt.slice(0,10)}</span>`:""}
       </div>`;
-    el.addEventListener("click", ()=>openDetail(c.id));
+    el.addEventListener("click", ()=>{ location.hash = "#c/"+c.id; });
     box.appendChild(el);
   }
   $("#cstat").textContent = `${cs.length} of ${CONTACTS.length} contacts`;
   $("#stat").textContent = "";
+}
+
+/* ---------- Outreach today ---------- */
+const sentToday = c => (c.tags||[]).includes("outreach:"+NOW_DATE);
+// Batch number = which outreach day this is, chronologically (1-based).
+function outreachBatchNo(){
+  const dates = new Set([NOW_DATE]);
+  for (const c of CONTACTS) for (const t of (c.tags||[])) if (t.startsWith("outreach:")) dates.add(t.slice(9));
+  return [...dates].sort().indexOf(NOW_DATE) + 1;
+}
+// Suggest people worth contacting today: never contacted, not opted-out, not
+// already sent today, no obvious junk. Actionable (has LinkedIn) + closer
+// circle first.
+function outreachSuggestions(){
+  const junk = c => /csgoblox|example\.com|cerver-|smoke|idempotent|@.*\.try/i.test((c.name||"")+" "+(c.company||"")+" "+(c.emails||[]).join(" "));
+  const elig = CONTACTS.filter(c =>
+    !sentToday(c) && !outSkipped.has(c.id) && !c.lastInteraction &&
+    !(c.tags||[]).includes("do-not-contact") && !junk(c));
+  elig.sort((a,b)=>{
+    const la=a.linkedin?1:0, lb=b.linkedin?1:0; if(la!==lb) return lb-la;
+    const ca=+(circleOf(a)||9), cb=+(circleOf(b)||9); if(ca!==cb) return ca-cb;
+    return a.name.localeCompare(b.name);
+  });
+  return elig.slice(0,10);
+}
+// Normalize any em/en dash to a plain hyphen so nothing shown, copied, or logged has a long dash.
+const deDash = s => (s ?? "").replace(/[—–]/g, "-");
+// Pick an outreach angle from the contact's role/segment (deterministic, no AI):
+// VC/partner, founder/CEO, engineer, or biz — falling back to a warm default.
+function outreachAngle(c){
+  const t = (c.title||"").toLowerCase();
+  const co = (c.company||"").toLowerCase();
+  const tags = (c.tags||[]).map(x=>String(x).toLowerCase());
+  if (/partner|investor|ventur|capital|\bvc\b|general partner|\bgp\b|angel/.test(t)
+      || /ventures|capital|partners/.test(co) || tags.includes("investor") || tags.includes("vc")) return "vc";
+  if (/founder|ceo|co-?founder|chief exec|\bcoo\b/.test(t) || tags.includes("founder")) return "founder";
+  if (/engineer|developer|\bcto\b|architect|staff|\bswe\b|programmer|principal eng/.test(t)
+      || tags.includes("icp:dev")) return "eng";
+  if (tags.includes("icp:biz")) return "biz";
+  return "default";
+}
+function draftFor(c){
+  const first = (c.name||"there").split(" ")[0];
+  const co = c.company ? c.company : "";
+  const iBuild = "I'm building cerver these days - AI agents on any model/compute, minus the runaway bills";
+  const byAngle = {
+    vc:      `Hi ${first}, would love to hear what you're seeing${co?` at ${co}`:""} in the agent space - it's moving fast. ${iBuild}. No pitch, genuinely curious how it looks from your seat. Grab a coffee or a call sometime?`,
+    founder: `Hi ${first}, been curious about what you're building${co?` at ${co}`:""} - would love to hear more. ${iBuild}, so we're circling similar problems. Coffee sometime? No agenda, just curious.`,
+    eng:     `Hi ${first}, curious about your work${co?` at ${co}`:""} and where you think agents are headed. ${iBuild}. Would love to compare notes sometime - no agenda, just genuinely interested.`,
+    biz:     `Hi ${first}, would love to hear how you're thinking about agents${co?` at ${co}`:""}. ${iBuild}. No pitch - just curious how it looks from your side. Coffee or a quick call?`,
+    default: `Hi ${first}, would genuinely love to hear what you're working on${co?` at ${co}`:""}. ${iBuild}. No agenda - happy to grab a coffee or a call if you're up for it.`,
+  };
+  return deDash(byAngle[outreachAngle(c)]);
+}
+function renderOutreach(){
+  const no = outreachBatchNo();
+  $("#outTitle").textContent = deDash(`Outreach — Batch #${no} · ${NOW_DATE}`);
+  const sugg = outreachSuggestions();
+  const doneCount = CONTACTS.filter(sentToday).length;
+  $("#outProgress").textContent = `${doneCount} sent today · ${sugg.length} suggested`;
+  const box = $("#outList"); box.innerHTML = "";
+  if (!sugg.length){
+    box.innerHTML = `<div class="empty">Nothing left to suggest today — ${doneCount} already sent. 🎉<br>New contacts, or clear a "Skip", to get more.</div>`;
+  }
+  for (const c of sugg){
+    const circle = circleOf(c);
+    const why = [circle?`circle ${circle}`:null, "never contacted", ...freeTags(c).slice(0,2)].filter(Boolean).join(" · ");
+    const liOpen = c.linkedin ? `<a href="${esc(c.linkedin)}" target="_blank" rel="noopener" class="li">open ↗</a>` : "";
+    const liSearch = `<a href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent((c.name+" "+(c.company||"")).trim())}" target="_blank" rel="noopener" class="li" style="background:rgba(255,255,255,.06);color:var(--muted)">search ⌕</a>`;
+    const el = document.createElement("div"); el.className="out-card"; el.dataset.id=c.id;
+    el.innerHTML = deDash(`
+      <div class="out-head">
+        ${circle?`<span class="pill circle c${circle}">${circle}°</span>`:""}
+        <b>${esc(c.name)}</b>${c.company?`<span class="co"> · ${esc(c.company)}</span>`:""}${c.title?`<span class="co"> — ${esc(c.title)}</span>`:""}
+        <span style="margin-left:8px">${liOpen} ${liSearch}</span>
+      </div>
+      <div class="out-why">${esc(why)}</div>
+      <textarea class="out-msg" spellcheck="false">${esc(draftFor(c))}</textarea>
+      <div class="out-actions">
+        <button class="btn ghost" data-copy>Copy message</button>
+        <button class="btn ghost" data-open>Open contact</button>
+        <div class="grow"></div>
+        <button class="btn ghost" data-skip>Skip</button>
+        <button class="btn" data-sent>Mark sent ✓</button>
+      </div>`);
+    el.querySelector("[data-sent]").onclick = ()=>markSent(c.id, el.querySelector(".out-msg").value);
+    el.querySelector("[data-skip]").onclick = ()=>{ outSkipped.add(c.id); renderOutreach(); };
+    el.querySelector("[data-open]").onclick = ()=>{ location.hash="#c/"+c.id; };
+    el.querySelector("[data-copy]").onclick = (e)=>{ navigator.clipboard?.writeText(deDash(el.querySelector(".out-msg").value)); e.target.textContent="Copied ✓"; setTimeout(()=>e.target.textContent="Copy message",1400); };
+    el.querySelector(".out-msg").addEventListener("input", (e)=>{ const p=e.target.selectionStart; e.target.value = deDash(e.target.value); try{ e.target.setSelectionRange(p,p); }catch(_){} });
+    box.appendChild(el);
+  }
+}
+async function markSent(id, msg){
+  const c = CONTACTS.find(x=>x.id===id); if(!c) return;
+  msg = deDash(msg);
+  const no = outreachBatchNo();
+  const summary = `Outreach batch #${no} (${NOW_DATE})${msg?` — “${msg.slice(0,80)}${msg.length>80?"…":""}”`:""}`;
+  // 1) log the contact
+  await api(`/contacts/${id}/interactions`,{method:"POST",body:JSON.stringify({channel:"message",summary})});
+  // 2) tag with the batch (date), and set a +7d follow-up
+  const tags = (c.tags||[]).filter(t=>t!=="outreach:"+NOW_DATE).concat("outreach:"+NOW_DATE);
+  const fu = new Date(NOW_DATE); fu.setDate(fu.getDate()+7);
+  await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({tags, followUpAt: fu.toISOString().slice(0,10), followUpNote:`Follow up on batch #${no} outreach`})});
+  await load(); renderOutreach(); toast(`Logged & tagged — ${c.name}`);
+}
+
+/* ---------- Calendar view ---------- */
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const evKind = k => k === "added" ? "added" : k === "follow-up" ? "follow-up" : "contacted";
+function renderCalendar(){
+  $("#calTitle").textContent = `${MONTHS[calM]} ${calY}`;
+  // group events for this month by day-of-month
+  const byDay = {};
+  for (const e of EVENTS){
+    const d = e.date.slice(0,10); // YYYY-MM-DD
+    if (+d.slice(0,4)!==calY || +d.slice(5,7)-1!==calM) continue;
+    (byDay[+d.slice(8,10)] ||= []).push(e);
+  }
+  const first = new Date(calY, calM, 1).getDay();      // weekday of the 1st
+  const days = new Date(calY, calM+1, 0).getDate();     // days in month
+  const prevDays = new Date(calY, calM, 0).getDate();
+  const cells = [];
+  for (let i=0;i<first;i++) cells.push({ n: prevDays-first+1+i, other:true });
+  for (let d=1;d<=days;d++) cells.push({ n:d, other:false });
+  while (cells.length % 7) cells.push({ n: cells.length-first-days+1, other:true });
+
+  let html = `<div class="cal-dow">${DOW.map(d=>`<div>${d}</div>`).join("")}</div><div class="cal-grid">`;
+  for (const cell of cells){
+    const iso = `${calY}-${String(calM+1).padStart(2,"0")}-${String(cell.n).padStart(2,"0")}`;
+    const isToday = !cell.other && iso===TODAY;
+    const evs = cell.other ? [] : (byDay[cell.n]||[]);
+    const shown = calExpanded.has(iso) ? evs : evs.slice(0,3), extra = evs.length-shown.length;
+    html += `<div class="cal-cell${cell.other?" other":""}${isToday?" today":""}"${cell.other?"":` data-date="${iso}"`}>
+      <div class="cal-day">${cell.n}</div>
+      ${shown.map(e=>{ const k=evKind(e.kind); return `<div class="cal-ev ${k}" data-cid="${e.contactId}"${k==="follow-up"?` draggable="true" data-drag="1"`:""} title="${esc(e.kind)}: ${esc(e.text)}${k==="follow-up"?" (drag to reschedule)":""}">${esc(e.contact)}</div>`; }).join("")}
+      ${extra>0?`<div class="cal-more" data-expand="${iso}">+${extra} more</div>`:""}
+    </div>`;
+  }
+  html += `</div>`;
+  const box = $("#cal"); box.innerHTML = html;
+  box.querySelectorAll("[data-cid]").forEach(el=>el.onclick=()=>{ location.hash="#c/"+el.dataset.cid; });
+  box.querySelectorAll("[data-expand]").forEach(el=>el.onclick=(e)=>{ e.stopPropagation(); calExpanded.add(el.dataset.expand); renderCalendar(); });
+  // Drag a follow-up (yellow) event onto another day to reschedule that person's next talk.
+  let dragCid = null;
+  box.querySelectorAll('.cal-ev[data-drag]').forEach(el=>{
+    el.addEventListener('dragstart', e=>{ dragCid = el.dataset.cid; e.dataTransfer.effectAllowed = 'move'; });
+    el.addEventListener('dragend', ()=>{ dragCid = null; });
+  });
+  box.querySelectorAll('.cal-cell[data-date]').forEach(cell=>{
+    cell.addEventListener('dragover', e=>{ if(!dragCid) return; e.preventDefault(); cell.style.background = 'rgba(99,102,241,.14)'; });
+    cell.addEventListener('dragleave', ()=>{ cell.style.background = ''; });
+    cell.addEventListener('drop', async e=>{
+      e.preventDefault(); cell.style.background = '';
+      const id = dragCid; dragCid = null;
+      if(!id) return;
+      const date = cell.dataset.date;
+      await api(`/contacts/${id}`, { method:'PATCH', body: JSON.stringify({ followUpAt: date }) });
+      await load();
+      toast('Next talk moved to ' + date);
+    });
+  });
+  const total = Object.values(byDay).reduce((n,a)=>n+a.length,0);
+  $("#stat").textContent = `${total} event${total===1?"":"s"} this month`;
+}
+function calShift(delta){ const d=new Date(calY,calM+delta,1); calY=d.getFullYear(); calM=d.getMonth(); renderCalendar(); }
+function calToday(){ calY=+TODAY.slice(0,4); calM=+TODAY.slice(5,7)-1; renderCalendar(); }
+
+/* ---------- Lists view ---------- */
+function renderLists(){
+  const box = $("#llist"); box.innerHTML = "";
+  if (!LISTS.length) box.innerHTML = `<div class="empty">No lists yet. Click “+ New list”.</div>`;
+  for (const l of [...LISTS].sort((a,b)=>a.name.localeCompare(b.name))){
+    const el = document.createElement("div"); el.className="crow"; el.style.borderLeftColor="var(--accent)";
+    el.style.gridTemplateColumns = "1.4fr 1fr auto";
+    el.innerHTML = `
+      <div><span class="nm">${esc(l.name)}</span><div class="co">${esc(l.id)}</div></div>
+      <div class="meta">${l.memberCount} member${l.memberCount===1?"":"s"}</div>
+      <div class="tags" style="justify-content:flex-end;gap:6px">
+        <button class="btn" data-open="${l.id}">Open</button>
+        <button class="btn ghost" data-rename="${l.id}">Rename</button>
+        <button class="btn danger" data-del="${l.id}">Delete</button>
+      </div>`;
+    box.appendChild(el);
+  }
+  box.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ location.hash="#list/"+b.dataset.open; });
+  box.querySelectorAll("[data-rename]").forEach(b=>b.onclick=()=>renameList(b.dataset.rename));
+  box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delList(b.dataset.del));
+  $("#lstat").textContent = `${LISTS.length} list${LISTS.length===1?"":"s"}`;
+  $("#stat").textContent = "";
+}
+async function newList(){
+  const name = prompt("New list name:"); if(!name) return;
+  await api("/lists",{method:"POST",body:JSON.stringify({name})}); await load(); toast("List created");
+}
+async function renameList(id){
+  const cur = listName(id); const name = prompt("Rename list:", cur); if(!name||name===cur) return;
+  await api(`/lists/${id}`,{method:"PATCH",body:JSON.stringify({name})}); await load(); toast("Renamed");
+}
+async function delList(id){
+  if(!confirm(`Delete list "${listName(id)}"? Contacts are kept — only the grouping is removed.`)) return;
+  await api(`/lists/${id}`,{method:"DELETE"}); if(listFilter===id) listFilter=""; await load(); toast("List deleted");
 }
 
 /* ---------- Pipeline view ---------- */
@@ -251,7 +676,7 @@ function renderPipeline(){
         ${c.followUpAt?`<span class="pill next ${nc}">${c.followUpAt.slice(0,10)}</span>`:""}
         ${freeTags(c).slice(0,2).map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`;
       el.addEventListener("dragstart",e=>e.dataTransfer.setData("text/plain",c.id));
-      el.addEventListener("click",()=>openDetail(c.id));
+      el.addEventListener("click",()=>{ location.hash = "#c/"+c.id; });
       drop.appendChild(el);
     }
     col.addEventListener("dragover",e=>{e.preventDefault();col.classList.add("dragover");});
@@ -275,9 +700,10 @@ async function openDetail(id){
   detailId = id;
   const c = id ? await api(`/contacts/${id}`) : { tags:[], emails:[], phones:[] };
   const hist = id ? (await api(`/contacts/${id}/interactions`)).interactions : [];
-  const stage = stageOf(c)||"", icp = icpOf(c)||"";
+  const stage = stageOf(c)||"", icp = icpOf(c)||"", circle = circleOf(c)||"";
+  const liSearch = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(((c.name||"")+" "+(c.company||"")).trim())}`;
   $("#modal").innerHTML = `
-    <span class="x" onclick="closeModal()">×</span>
+    <span class="x" onclick="closeTo()">×</span>
     <h3>${id?esc(c.name):"New contact"}</h3>
     <div class="sub">${id?"Edit contact, log interactions, set follow-up":"Add someone to your contacts"}</div>
     <div class="row">
@@ -286,17 +712,29 @@ async function openDetail(id){
     </div>
     <div class="row">
       <div><label>Title</label><input id="dTitle" value="${esc(c.title)}"></div>
-      <div><label>LinkedIn</label><input id="dLinkedin" value="${esc(c.linkedin)}"></div>
+      <div><label>LinkedIn${c.linkedin?` · <a href="${esc(c.linkedin)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">open ↗</a>`:""} · <a href="${liSearch}" target="_blank" rel="noopener" style="color:var(--muted);font-weight:600">search ⌕</a></label><input id="dLinkedin" value="${esc(c.linkedin)}"></div>
     </div>
     <div class="row">
       <div><label>Emails (comma-sep)</label><input id="dEmails" value="${esc((c.emails||[]).join(", "))}"></div>
       <div><label>Phones (comma-sep)</label><input id="dPhones" value="${esc((c.phones||[]).join(", "))}"></div>
     </div>
+    ${(!c.emails||!c.emails.length)?`<div class="row"><div>
+      <label>Guess email <span style="color:var(--faint);font-weight:400">— pick one to fill the field</span></label>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:7px">
+        <span class="muted" style="font-size:13px">@</span>
+        <input id="dDomain" value="${esc(guessDomain(c.company))}" placeholder="company.com" style="max-width:240px">
+      </div>
+      <div id="emailGuesses" class="guess-list"></div>
+    </div></div>`:""}
     <div class="row">
       <div><label>Stage</label><select class="field" id="dStage"><option value="">— none —</option>${STAGES.map(s=>`<option ${s===stage?"selected":""}>${s}</option>`).join("")}</select></div>
       <div><label>ICP</label><select class="field" id="dIcp"><option value="">— none —</option>${["dev","biz"].map(s=>`<option ${s===icp?"selected":""}>${s}</option>`).join("")}</select></div>
+      <div><label>Circle</label><select class="field" id="dCircle"><option value="">— none —</option>${["1","2","3"].map(s=>`<option ${s===circle?"selected":""}>${s}</option>`).join("")}</select></div>
     </div>
     <div class="row"><div><label>Other tags (comma-sep)</label><input id="dTags" value="${esc(freeTags(c).join(", "))}"></div></div>
+    ${LISTS.length?`<div class="row"><div><label>Lists</label><div id="dLists" style="display:flex;flex-wrap:wrap;gap:10px">
+      ${LISTS.map(l=>`<label class="toggle" style="font-weight:500;color:var(--text)"><input type="checkbox" class="dList" value="${l.id}" ${listIdsOf(c).includes(l.id)?"checked":""}> ${esc(l.name)}</label>`).join("")}
+    </div></div></div>`:""}
     <div class="row">
       <div><label>Next follow-up</label><input type="date" id="dNext" value="${c.followUpAt?c.followUpAt.slice(0,10):""}"></div>
       <div><label>About</label><input id="dNextNote" value="${esc(c.followUpNote)}"></div>
@@ -305,7 +743,7 @@ async function openDetail(id){
     <div class="actions">
       ${id?`<button class="btn danger" id="delBtn">Delete</button>`:""}
       <div class="grow"></div>
-      <button class="btn ghost" onclick="closeModal()">Close</button>
+      <button class="btn ghost" onclick="closeTo()">Close</button>
       <button class="btn" id="saveBtn">Save</button>
     </div>
     ${id?`
@@ -320,17 +758,43 @@ async function openDetail(id){
     </div>`:""}`;
   $("#saveBtn").onclick = saveDetail;
   if (id){ $("#delBtn").onclick = ()=>delContact(id); $("#logBtn").onclick = ()=>logInteraction(id); }
+  if ($("#emailGuesses")){ renderEmailGuesses(); $("#dDomain").addEventListener("input", renderEmailGuesses); $("#dName").addEventListener("input", renderEmailGuesses); }
   $("#scrim").classList.add("on");
 }
 function closeModal(){ $("#scrim").classList.remove("on"); detailId=null; }
 window.closeModal = closeModal;
 
+// Best-effort domain from a company name (user can edit it).
+function guessDomain(co){
+  if(!co) return "";
+  if(co.includes(".")) return co.toLowerCase().replace(/[^a-z0-9.\-]/g,""); // already a domain (e.g. monday.com)
+  let s = co.toLowerCase().replace(/\(.*?\)/g,"")
+    .replace(/\b(labs|inc|ltd|llc|the|global|group|networks|technologies|technology|security|software|systems|ai)\b/g,"")
+    .replace(/[^a-z0-9]/g,"");
+  return s ? s+".com" : "";
+}
+// Render 3–4 candidate emails from the name + domain; picking one fills the field.
+function renderEmailGuesses(){
+  const box = $("#emailGuesses"); if(!box) return;
+  const dom = ($("#dDomain").value||"").trim().replace(/^@/,"");
+  const parts = ($("#dName").value||"").trim().toLowerCase().replace(/[^a-z\s]/g,"").split(/\s+/).filter(Boolean);
+  const first = parts[0]||"", last = parts.length>1 ? parts[parts.length-1] : "";
+  if(!dom || !first){ box.innerHTML = `<div class="muted" style="font-size:12px">Add a domain to see options.</div>`; return; }
+  const locals = last ? [`${first}.${last}`, `${first}${last}`, `${first[0]}${last}`, first] : [first];
+  const seen = new Set();
+  box.innerHTML = locals.filter(l=>{ if(!l||seen.has(l)) return false; seen.add(l); return true; })
+    .map(l=>`<label class="guess"><input type="radio" name="emailGuess" value="${esc(l+"@"+dom)}"> <span>${esc(l+"@"+dom)}</span></label>`).join("");
+  box.querySelectorAll("input[name=emailGuess]").forEach(r=>r.onchange=()=>{ $("#dEmails").value = r.value; toast("Email set — Save to keep"); });
+}
+
 async function saveDetail(){
   const v = s => $("#"+s).value.trim();
   const arr = s => v(s).split(",").map(x=>x.trim()).filter(Boolean);
-  const stage = $("#dStage").value, icp = $("#dIcp").value;
-  const tags = [...arr("dTags").filter(t=>!t.startsWith("stage:")&&!t.startsWith("icp:"))];
-  if (stage) tags.push("stage:"+stage); if (icp) tags.push("icp:"+icp);
+  const stage = $("#dStage").value, icp = $("#dIcp").value, circle = $("#dCircle").value;
+  const tags = [...arr("dTags").filter(t=>!t.startsWith("stage:")&&!t.startsWith("icp:")&&!t.startsWith("list:")&&!t.startsWith("circle:"))];
+  if (stage) tags.push("stage:"+stage); if (icp) tags.push("icp:"+icp); if (circle) tags.push("circle:"+circle);
+  // list membership comes from the checkboxes (checked = in the list)
+  [...document.querySelectorAll(".dList:checked")].forEach(x=>tags.push("list:"+x.value));
   const body = { name:v("dName"), company:v("dCompany"), title:v("dTitle"), linkedin:v("dLinkedin"),
     emails:arr("dEmails"), phones:arr("dPhones"), tags, notes:v("dNotes"),
     followUpAt:v("dNext")||null, followUpNote:v("dNextNote")||null };
@@ -338,12 +802,12 @@ async function saveDetail(){
   try {
     if (detailId) await api(`/contacts/${detailId}`,{method:"PATCH",body:JSON.stringify(body)});
     else await api(`/contacts`,{method:"POST",body:JSON.stringify(body)});
-    closeModal(); await load(); toast("Saved");
+    await load(); location.hash = "#"+view; toast("Saved");
   } catch(e){ toast("Error: "+e.message); }
 }
 async function delContact(id){
   if (!confirm("Delete this contact and its history?")) return;
-  await api(`/contacts/${id}`,{method:"DELETE"}); closeModal(); await load(); toast("Deleted");
+  await api(`/contacts/${id}`,{method:"DELETE"}); await load(); location.hash = "#"+view; toast("Deleted");
 }
 async function logInteraction(id){
   const sum = $("#logSum").value.trim(); if(!sum){ toast("Write what happened"); return; }
@@ -351,14 +815,37 @@ async function logInteraction(id){
   await load(); openDetail(id); toast("Logged");
 }
 
+/* ---------- URL routing (hash is the source of truth) ---------- */
+// Navigation just sets location.hash; applyRoute() reacts to every hash change
+// (clicks, Back/Forward, refresh, hand-edited URLs) and drives the pure
+// open/close/showView functions. Those never touch the URL themselves.
+function applyRoute(){
+  const raw = (location.hash || "").replace(/^#\/?/, "");
+  const [seg, arg] = raw.split("/");
+  if (seg === "c" && arg){ openDetail(arg); return; }        // contact modal
+  if (seg === "new"){ openDetail(null); return; }            // new-contact modal
+  if ($("#scrim").classList.contains("on")) closeModal();    // any view route closes an open modal
+  if (seg === "list" && arg){ listFilter = arg; showView("contacts"); return; }
+  const v = ["pipeline","lists","calendar","outreach","contacts"].includes(seg) ? seg : "contacts";
+  showView(v);
+}
+// close the modal by navigating back to the current view's URL
+function closeTo(){ location.hash = "#" + view; }
+window.closeTo = closeTo;
+window.addEventListener("hashchange", applyRoute);
+
 /* ---------- wiring ---------- */
 function showView(v){
-  view=v; $("#viewContacts").classList.toggle("hide",v!=="contacts");
+  view=v; selIdx=-1;
+  $("#viewContacts").classList.toggle("hide",v!=="contacts");
+  $("#viewOutreach").classList.toggle("hide",v!=="outreach");
+  $("#viewCalendar").classList.toggle("hide",v!=="calendar");
   $("#viewPipeline").classList.toggle("hide",v!=="pipeline");
+  $("#viewLists").classList.toggle("hide",v!=="lists");
   [...$("#nav").children].forEach(b=>b.classList.toggle("on",b.dataset.view===v));
   renderActive();
 }
-$("#nav").addEventListener("click",e=>{const b=e.target.closest("button");if(b)showView(b.dataset.view);});
+$("#nav").addEventListener("click",e=>{const b=e.target.closest("button");if(b)location.hash="#"+b.dataset.view;});
 $("#icp").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;icpFilter=b.dataset.icp;
   [...$("#icp").children].forEach(x=>x.classList.toggle("on",x===b));renderPipeline();});
 $("#due").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;dueFilter=b.dataset.due;
@@ -367,12 +854,63 @@ $("#showAll").addEventListener("change",renderPipeline);
 $("#search").addEventListener("input",e=>{search=e.target.value.trim();renderActive();});
 $("#tagFilter").addEventListener("change",e=>{tagFilter=e.target.value;renderContacts();});
 $("#sort").addEventListener("change",e=>{sortBy=e.target.value;renderContacts();});
-$("#newBtn").addEventListener("click",()=>openDetail(null));
+$("#outReroll").addEventListener("click",()=>{ outSkipped.clear(); renderOutreach(); });
+$("#calNav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  b.dataset.cal==="today"?calToday():calShift(b.dataset.cal==="next"?1:-1);});
+$("#newBtn").addEventListener("click",()=>{ location.hash = "#new"; });
+$("#newListBtn").addEventListener("click",newList);
+$("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.hash="#contacts"; });
 $("#refresh").addEventListener("click",load);
-$("#scrim").addEventListener("click",e=>{if(e.target.id==="scrim")closeModal();});
-document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+$("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim") closeTo(); });
+/* ---------- keyboard navigation ---------- */
+const KB_VIEWS = ["contacts","outreach","calendar","pipeline","lists"];
+// the highlightable rows/cards in the current list view
+function selEls(){
+  if(view==="contacts") return [...document.querySelectorAll("#clist .crow")];
+  if(view==="outreach")  return [...document.querySelectorAll("#outList .out-card")];
+  if(view==="lists")     return [...document.querySelectorAll("#llist .crow")];
+  return [];
+}
+function kbMove(delta){
+  const els = selEls(); if(!els.length) return;
+  selIdx = selIdx<0 ? (delta>0?0:els.length-1) : Math.max(0, Math.min(els.length-1, selIdx+delta));
+  els.forEach(x=>x.classList.remove("sel"));
+  const el = els[selIdx]; el.classList.add("sel"); el.scrollIntoView({block:"nearest"});
+}
+function kbActivate(isSpace){
+  const els = selEls(); const el = els[selIdx]; if(!el) return;
+  if(view==="outreach" && isSpace){ el.querySelector("[data-sent]")?.click(); return; } // Space = mark sent
+  if(view==="lists"){ el.querySelector("[data-open]")?.click(); return; }               // open the list
+  if(el.dataset.id) location.hash = "#c/"+el.dataset.id;                                  // open the contact
+}
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){ if($("#scrim").classList.contains("on")) closeTo(); return; }
+  if($("#scrim").classList.contains("on")) return;                       // modal open → don't navigate behind it
+  const t=e.target; if(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return; // don't hijack typing
+  if((e.key==="ArrowUp" || e.key==="ArrowDown") && e.metaKey){
+    e.preventDefault();                                                   // Cmd+Up/Down → switch views
+    let i = KB_VIEWS.indexOf(view); if(i<0) i=0;
+    i = (i + (e.key==="ArrowDown"?1:-1) + KB_VIEWS.length) % KB_VIEWS.length;
+    location.hash = "#"+KB_VIEWS[i];
+  } else if(e.key==="ArrowDown"){ e.preventDefault(); kbMove(1); }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); kbMove(-1); }
+  else if(e.key==="Enter"){ e.preventDefault(); kbActivate(false); }
+  else if(e.key===" "){ e.preventDefault(); kbActivate(true); }
+});
 
-load().catch(e=>$("#clist").innerHTML=`<div class="empty">Failed to load: ${esc(e.message)}<br>Is the API on :8787?</div>`);
+/* ---------- theme (lite / dark) ---------- */
+const THEME_KEY = "contacts-theme";
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  $("#themeBtn").textContent = t === "light" ? "◑ Dark mode" : "◐ Light mode";
+}
+applyTheme(localStorage.getItem(THEME_KEY) || "light");
+$("#themeBtn").addEventListener("click",()=>{
+  const t = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  localStorage.setItem(THEME_KEY, t); applyTheme(t);
+});
+
+load().then(applyRoute).catch(e=>$("#clist").innerHTML=`<div class="empty">Failed to load: ${esc(e.message)}<br>Is the API on :8787?</div>`);
 </script>
 </body>
 </html>

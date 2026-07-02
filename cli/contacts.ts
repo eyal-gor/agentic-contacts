@@ -6,6 +6,24 @@ import { Command } from "commander";
 const BASE = process.env.CONTACTS_API_URL ?? "http://localhost:8787";
 const API_KEY = process.env.API_KEY;
 
+// Normalize em/en dashes to a plain hyphen on ALL CLI output — mirrors the web
+// UI's deDash. Wraps console so placeholders and server data alike come out clean.
+const deDash = (s: string) => s.replace(/[—–]/g, "-");
+const _log = console.log.bind(console);
+(console as any).log = (...args: any[]) =>
+  _log(...args.map((a) => (typeof a === "string" ? deDash(a) : a)));
+const _table = console.table.bind(console);
+(console as any).table = (rows: any) =>
+  _table(
+    Array.isArray(rows)
+      ? rows.map((r) => {
+          const o: Record<string, unknown> = {};
+          for (const k in r) o[k] = typeof r[k] === "string" ? deDash(r[k]) : r[k];
+          return o;
+        })
+      : rows,
+  );
+
 async function api(path: string, init: RequestInit = {}) {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
@@ -235,6 +253,71 @@ program
       }
     }
     console.log(`\nTotal: ${contacts.length}${opts.icp ? ` · icp:${opts.icp}` : ""}`);
+  });
+
+// --- Lists (named batches of contacts) -----------------------------------
+program
+  .command("lists")
+  .description("show all lists with member counts")
+  .action(async () => {
+    const data = await api("/lists");
+    if (!data.lists.length) return console.log("No lists yet. Create one: contacts list-new \"Name\"");
+    console.table(
+      data.lists.map((l: any) => ({ id: l.id, name: l.name, members: l.memberCount })),
+    );
+  });
+
+program
+  .command("list-new <name...>")
+  .description('create a list, e.g. contacts list-new "Batch — July 1 2026"')
+  .action(async (name: string[]) => {
+    const created = await api("/lists", { method: "POST", body: JSON.stringify({ name: name.join(" ") }) });
+    console.log(`Created list "${created.name}" (${created.id})`);
+  });
+
+program
+  .command("list-show <id>")
+  .description("show a list's members")
+  .action(async (id) => {
+    const l = await api(`/lists/${id}`);
+    console.log(`${l.name} — ${l.memberCount} member(s)`);
+    if (l.memberCount) {
+      console.table(
+        l.members.map((c: any) => ({ id: c.id, name: c.name, company: c.company ?? "" })),
+      );
+    }
+  });
+
+program
+  .command("list-add <id> <contactIds...>")
+  .description("add one or more contacts to a list (batch)")
+  .action(async (id, contactIds: string[]) => {
+    const res = await api(`/lists/${id}/members`, { method: "POST", body: JSON.stringify({ ids: contactIds }) });
+    console.log(`Added ${res.count} to ${id}`);
+  });
+
+program
+  .command("list-remove <id> <contactId>")
+  .description("remove a contact from a list")
+  .action(async (id, contactId) => {
+    await api(`/lists/${id}/members/${contactId}`, { method: "DELETE" });
+    console.log(`Removed ${contactId} from ${id}`);
+  });
+
+program
+  .command("list-rename <id> <name...>")
+  .description("rename a list")
+  .action(async (id, name: string[]) => {
+    const l = await api(`/lists/${id}`, { method: "PATCH", body: JSON.stringify({ name: name.join(" ") }) });
+    console.log(`Renamed to "${l.name}"`);
+  });
+
+program
+  .command("list-rm <id>")
+  .description("delete a list (contacts are kept; only the grouping is removed)")
+  .action(async (id) => {
+    await api(`/lists/${id}`, { method: "DELETE" });
+    console.log(`Deleted list ${id}`);
   });
 
 program.parseAsync();
