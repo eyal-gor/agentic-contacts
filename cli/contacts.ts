@@ -50,6 +50,101 @@ const STAGES = ["lead", "contacted", "call", "trial", "proposal", "won", "lost"]
 const program = new Command();
 program.name("contacts").description("CLI for the Agentic Contacts API");
 
+// --- Companies / accounts -------------------------------------------------
+program
+  .command("companies")
+  .description("list companies/accounts")
+  .option("-q, --query <q>", "search text")
+  .option("-t, --tag <tag>", "filter by tag")
+  .option("-s, --status <status>", "filter by status")
+  .action(async (opts) => {
+    const params = new URLSearchParams();
+    if (opts.query) params.set("q", opts.query);
+    if (opts.tag) params.set("tag", opts.tag);
+    if (opts.status) params.set("status", opts.status);
+    const data = await api(`/companies?${params}`);
+    console.table(
+      data.companies.map((co: any) => ({
+        id: co.id,
+        name: co.name,
+        status: co.status ?? "",
+        website: co.website ?? "",
+        tags: (co.tags ?? []).join(", "),
+      })),
+    );
+  });
+
+program
+  .command("company-add")
+  .description("create a company/account")
+  .requiredOption("-n, --name <name>", "company name")
+  .option("-w, --website <url>", "website")
+  .option("-d, --domain <domain...>", "domain(s)")
+  .option("-t, --tag <tag...>", "tag(s)")
+  .option("-s, --status <status>", "status")
+  .option("--source <url>", "source URL")
+  .option("--fit <reason>", "fit reason")
+  .option("--angle <angle>", "suggested angle")
+  .option("--confidence <confidence>", "confidence")
+  .option("--notes <notes>", "free-text notes")
+  .option("--upsert", "update by exact name if the company already exists")
+  .action(async (opts) => {
+    const created = await api(`/companies${opts.upsert ? "?upsert=1" : ""}`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: opts.name,
+        website: opts.website,
+        domains: opts.domain ?? [],
+        tags: opts.tag ?? [],
+        status: opts.status,
+        sourceUrl: opts.source,
+        fitReason: opts.fit,
+        suggestedAngle: opts.angle,
+        confidence: opts.confidence,
+        notes: opts.notes,
+      }),
+    });
+    console.log("Company:", created.id);
+  });
+
+program.command("company-get <id>").description("show a company/account").action(async (id) => {
+  console.log(JSON.stringify(await api(`/companies/${id}`), null, 2));
+});
+
+program
+  .command("company-update <id>")
+  .description("update a company/account")
+  .option("-n, --name <name>", "company name")
+  .option("-w, --website <url>", "website")
+  .option("-d, --domain <domain...>", "replace domains")
+  .option("-t, --tag <tag...>", "replace tags")
+  .option("-s, --status <status>", "status")
+  .option("--source <url>", "source URL")
+  .option("--fit <reason>", "fit reason")
+  .option("--angle <angle>", "suggested angle")
+  .option("--confidence <confidence>", "confidence")
+  .option("--notes <notes>", "free-text notes")
+  .action(async (id, opts) => {
+    const patch: Record<string, unknown> = {};
+    if (opts.name != null) patch.name = opts.name;
+    if (opts.website != null) patch.website = opts.website;
+    if (opts.domain != null) patch.domains = opts.domain;
+    if (opts.tag != null) patch.tags = opts.tag;
+    if (opts.status != null) patch.status = opts.status;
+    if (opts.source != null) patch.sourceUrl = opts.source;
+    if (opts.fit != null) patch.fitReason = opts.fit;
+    if (opts.angle != null) patch.suggestedAngle = opts.angle;
+    if (opts.confidence != null) patch.confidence = opts.confidence;
+    if (opts.notes != null) patch.notes = opts.notes;
+    const updated = await api(`/companies/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+    console.log("Updated company:", updated.id);
+  });
+
+program.command("company-rm <id>").description("delete a company/account").action(async (id) => {
+  await api(`/companies/${id}`, { method: "DELETE" });
+  console.log("Deleted company:", id);
+});
+
 program
   .command("list")
   .option("-q, --query <q>", "search text")
@@ -79,6 +174,7 @@ program
   .requiredOption("-n, --name <name>", "full name")
   .option("-e, --email <email...>", "email(s)")
   .option("-p, --phone <phone...>", "phone(s)")
+  .option("--company-id <id>", "company/account id")
   .option("-c, --company <company>", "company")
   .option("--title <title>", "job title")
   .option("-t, --tag <tag...>", "tag(s)")
@@ -91,6 +187,7 @@ program
         name: opts.name,
         emails: opts.email ?? [],
         phones: opts.phone ?? [],
+        companyId: opts.companyId,
         company: opts.company,
         title: opts.title,
         tags: opts.tag ?? [],
@@ -108,6 +205,7 @@ program.command("get <id>").action(async (id) => {
 program
   .command("update <id>")
   .option("-n, --name <name>", "full name")
+  .option("--company-id <id>", "company/account id")
   .option("-c, --company <company>", "company")
   .option("--title <title>", "job title")
   .option("--notes <notes>", "free-text notes")
@@ -117,7 +215,7 @@ program
   .option("--icp <icp>", "set ICP segment (e.g. dev, biz)")
   .action(async (id, opts) => {
     const patch: Record<string, unknown> = {};
-    for (const k of ["name", "company", "title", "notes", "linkedin"] as const) {
+    for (const k of ["name", "companyId", "company", "title", "notes", "linkedin"] as const) {
       if (opts[k] != null) patch[k] = opts[k];
     }
     // Tag handling: --tag replaces wholesale; --stage / --icp swap only their

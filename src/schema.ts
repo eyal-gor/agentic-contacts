@@ -6,6 +6,7 @@ export const ContactInput = z.object({
   name: z.string().min(1, "name is required"),
   emails: z.array(z.string().email()).default([]),
   phones: z.array(z.string()).default([]),
+  companyId: z.string().optional(),
   company: z.string().optional(),
   title: z.string().optional(),
   tags: z.array(z.string()).default([]),
@@ -24,6 +25,32 @@ export type ContactInputT = z.infer<typeof ContactInput>;
 export type ContactPatchT = z.infer<typeof ContactPatch>;
 
 export interface Contact extends ContactInputT {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// First-class companies/accounts. Contacts can point at these by companyId;
+// company remains on contacts as a denormalized display/search string.
+export const CompanyInput = z.object({
+  name: z.string().min(1, "name is required"),
+  website: z.string().url().optional(),
+  domains: z.array(z.string()).default([]),
+  tags: z.array(z.string()).default([]),
+  notes: z.string().optional(),
+  status: z.string().optional(),
+  sourceUrl: z.string().url().optional(),
+  fitReason: z.string().optional(),
+  suggestedAngle: z.string().optional(),
+  confidence: z.string().optional(),
+});
+
+export const CompanyPatch = CompanyInput.partial();
+
+export type CompanyInputT = z.infer<typeof CompanyInput>;
+export type CompanyPatchT = z.infer<typeof CompanyPatch>;
+
+export interface Company extends CompanyInputT {
   id: string;
   createdAt: string;
   updatedAt: string;

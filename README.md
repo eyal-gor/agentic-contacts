@@ -1,6 +1,6 @@
 # Agentic Contacts
 
-API-only contacts service. **TypeScript + Hono** REST API with a thin **CLI** client.
+API-only contacts + companies service. **TypeScript + Hono** REST API with a thin **CLI** client.
 Zero-config to start (file-backed JSON store), with a clean seam to swap in Supabase later.
 
 ## Quickstart
@@ -16,6 +16,9 @@ In another terminal, drive it with the CLI:
 ```bash
 npm run cli -- add -n "Ada Lovelace" -e ada@example.com -c "Analytical Engines" -t founder
 npm run cli -- list
+npm run cli -- company-add -n "Agnost AI" -w https://agnost.ai --status research --tag company-radar
+npm run cli -- companies --tag company-radar
+npm run cli -- company-get <id>
 npm run cli -- list -q ada
 npm run cli -- get <id>
 npm run cli -- update <id> --title "CTO"
@@ -28,7 +31,7 @@ npm run cli -- rm <id>
 
 ## Data lives in a separate (private) repo
 
-This code is open-source; the data is not. Contacts/interactions are stored as
+This code is open-source; the data is not. Contacts/companies/interactions are stored as
 JSON in a **separate private repo** (e.g. `p_98_contacts_data`), and this app
 points at it via env — so the code can be public without shipping anyone's PII.
 
@@ -40,6 +43,7 @@ cp .env.example .env   # then set the paths below
 
 ```ini
 CONTACTS_DATA_FILE=../p_98_contacts_data/contacts.json
+COMPANIES_DATA_FILE=../p_98_contacts_data/companies.json
 INTERACTIONS_DATA_FILE=../p_98_contacts_data/interactions.json
 DATA_GIT_SYNC=1                 # auto commit+push the data repo after edits (debounced)
 DATA_GIT_SYNC_DEBOUNCE_MS=10000 # wait this long after the last edit before pushing
@@ -56,6 +60,11 @@ to *this* repo — `data/` and `.env` are gitignored.
 | Method | Path             | Body            | Notes                          |
 | ------ | ---------------- | --------------- | ------------------------------ |
 | GET    | `/health`        | —               | liveness                       |
+| GET    | `/companies`     | —               | `?q=`, `?tag=`, `?status=`, paging |
+| POST   | `/companies`     | `CompanyInput`  | create → 201; `?upsert=1` updates by exact name |
+| GET    | `/companies/:id` | —               | includes matching contacts     |
+| PATCH  | `/companies/:id` | `CompanyPatch`  | partial update                 |
+| DELETE | `/companies/:id` | —               | 204                            |
 | GET    | `/contacts`      | —               | `?q=`, `?tag=`, `?sort=recent\|stale`, `?due=overdue\|today\|week\|all`, paging |
 | POST   | `/contacts`      | `ContactInput`  | create → 201                   |
 | GET    | `/contacts/:id`  | —               | 404 if missing                 |
@@ -64,7 +73,9 @@ to *this* repo — `data/` and `.env` are gitignored.
 | GET    | `/contacts/:id/interactions` | —   | conversation history, newest first |
 | POST   | `/contacts/:id/interactions` | `InteractionInput` | log a conversation → 201 |
 
-`ContactInput`: `{ name (required), emails[], phones[], company?, title?, tags[], notes? }`
+`CompanyInput`: `{ name (required), website?, domains[], tags[], notes?, status?, sourceUrl?, fitReason?, suggestedAngle?, confidence? }`
+
+`ContactInput`: `{ name (required), emails[], phones[], companyId?, company?, title?, tags[], notes? }`
 
 `InteractionInput`: `{ summary (required), channel (call|email|meeting|message|note|other), occurredAt? (ISO) }`
 
@@ -72,7 +83,7 @@ to *this* repo — `data/` and `.env` are gitignored.
 
 ### Auth
 
-Set `API_KEY` in `.env` to require `Authorization: Bearer <key>` on `/contacts*`.
+Set `API_KEY` in `.env` to require `Authorization: Bearer <key>` on `/contacts*`, `/companies*`, and `/lists*`.
 Left empty, the API is open (dev mode).
 
 ## Layout
@@ -80,9 +91,11 @@ Left empty, the API is open (dev mode).
 ```
 src/
   index.ts          # Hono app + server entry
-  schema.ts         # zod schemas + Contact type (single source of truth)
+  schema.ts         # zod schemas + Contact/Company types (single source of truth)
   store.ts          # file-backed JSON store (swap for Supabase here)
+  companystore.ts   # file-backed company/account store
   routes/contacts.ts# CRUD + auth middleware
+  routes/companies.ts# company/account CRUD
 cli/
   contacts.ts       # commander CLI — HTTP client of the REST API
 ```

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { contacts } from "./routes/contacts.js";
 import { listsRoute } from "./routes/lists.js";
+import { companiesRoute } from "./routes/companies.js";
 import * as store from "./store.js";
 import * as interactions from "./interactions.js";
 import { scheduleSync } from "./datasync.js";
@@ -28,6 +29,7 @@ const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public")
 app.get("/", async (c) => c.html(await readFile(join(PUBLIC_DIR, "index.html"), "utf8")));
 
 app.route("/contacts", contacts);
+app.route("/companies", companiesRoute);
 app.route("/lists", listsRoute);
 
 // Calendar feed: a flat, dated event stream across all contacts —
