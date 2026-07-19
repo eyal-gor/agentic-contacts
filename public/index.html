@@ -393,8 +393,25 @@ const outSkipped = new Set(); // ids skipped this session (not tagged/logged)
 let selIdx = -1; // keyboard-highlighted row index in the current list view
 
 const $ = (s, r=document) => r.querySelector(s);
-const api = async (path, init) => {
-  const r = await fetch(path, init && { ...init, headers: { "Content-Type":"application/json", ...(init.headers||{}) }});
+// ── API auth ──────────────────────────────────────────────
+// The worker requires Authorization: Bearer <API_KEY> on every route
+// (mandatory since it went public). The key lives in localStorage; on
+// the first 401 we prompt once, store, and retry — so the UI works
+// without a build-time secret.
+const KEY_STORAGE = "ac_api_key";
+function getApiKey(){ try { return localStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; } }
+function promptApiKey(){
+  const k = window.prompt("Agentic Contacts API key (stored only in this browser):", getApiKey());
+  if (k && k.trim()) { try { localStorage.setItem(KEY_STORAGE, k.trim()); } catch {} return k.trim(); }
+  return null;
+}
+const api = async (path, init, _retried) => {
+  const key = getApiKey();
+  const r = await fetch(path, { ...(init||{}), headers: { "Content-Type":"application/json", ...(key ? { "Authorization": `Bearer ${key}` } : {}), ...((init&&init.headers)||{}) }});
+  if (r.status === 401 && !_retried) {
+    const fresh = promptApiKey();
+    if (fresh) return api(path, init, true);
+  }
   const t = await r.text(); const d = t ? JSON.parse(t) : null;
   if (!r.ok) throw new Error(d?.error || r.statusText);
   return d;
