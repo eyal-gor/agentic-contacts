@@ -133,6 +133,23 @@
   .out-msg:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94,106,210,.18); }
   .out-actions { display: flex; align-items: center; gap: 8px; }
 
+  /* ── companies ── */
+  .company-table-wrap { padding: 8px 18px 32px; overflow-x: auto; }
+  .company-table { width: 100%; min-width: 1080px; border-collapse: collapse; table-layout: fixed; }
+  .company-table th { color: var(--faint); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+    text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  .company-table td { padding: 11px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  .company-row { cursor: pointer; border-left: 2px solid transparent; }
+  .company-row:hover { background: var(--surface); }
+  .company-row.sel { box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--surface); }
+  .company-row .nm { color: var(--text); font-weight: 650; }
+  .company-row a { color: var(--accent); text-decoration: none; font-size: 12px; word-break: break-word; }
+  .company-row a:hover { text-decoration: underline; }
+  .company-cell-muted { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+  .company-line-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+  .company-tags { display: flex; gap: 5px; flex-wrap: wrap; }
+  .company-source { color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block; }
+
   /* ── calendar ── */
   .cal-title { font-weight: 600; font-size: 14px; }
   .cal-legend { display: flex; gap: 14px; color: var(--muted); font-size: 12px; }
@@ -246,6 +263,7 @@
     <div class="side-label">Views</div>
     <nav class="nav" id="nav">
       <button data-view="contacts" class="on">Contacts</button>
+      <button data-view="companies">Companies</button>
       <button data-view="outreach">Outreach today</button>
       <button data-view="calendar">Calendar</button>
       <button data-view="pipeline">Pipeline</button>
@@ -283,6 +301,16 @@
         <span id="cstat" class="muted"></span>
       </div>
       <div class="clist" id="clist"></div>
+    </section>
+
+    <!-- COMPANIES VIEW -->
+    <section id="viewCompanies" class="scroll hide">
+      <div class="toolbar">
+        <select class="flat" id="companyTagFilter"><option value="">All company tags</option></select>
+        <select class="flat" id="companyStatusFilter"><option value="">All status</option></select>
+        <span id="companyStat" class="muted"></span>
+      </div>
+      <div class="company-table-wrap" id="companyTable"></div>
     </section>
 
     <!-- OUTREACH VIEW -->
@@ -354,8 +382,9 @@ const TODAY = new Date().toISOString().slice(0,10); // real today; UI compares d
 let CONTACTS = [];
 let LISTS = [];
 let EVENTS = [];
+let COMPANIES = [];
 let view = "contacts";
-let icpFilter = "", dueFilter = "", search = "", tagFilter = "", sortBy = "name", listFilter = "";
+let icpFilter = "", dueFilter = "", search = "", tagFilter = "", sortBy = "name", listFilter = "", companyTagFilter = "", companyStatusFilter = "";
 let detailId = null;
 let calY = +TODAY.slice(0,4), calM = +TODAY.slice(5,7) - 1; // calendar month (0-indexed)
 let calExpanded = new Set(); // ISO dates whose "+N more" has been expanded to show all events
@@ -387,11 +416,16 @@ function matchesSearch(c){
   return [c.name, c.company, c.title, c.notes, ...(c.emails||[]), ...(c.tags||[])]
     .filter(Boolean).some(v => String(v).toLowerCase().includes(q));
 }
+function matchesCompanySearch(c){
+  if (!search) return true; const q = search.toLowerCase();
+  return [c.name, c.website, c.notes, c.fitReason, c.suggestedAngle, c.sourceUrl, ...(c.domains||[]), ...(c.tags||[])]
+    .filter(Boolean).some(v => String(v).toLowerCase().includes(q));
+}
 
 async function load(){
-  const [cs, ls, ev] = await Promise.all([api("/contacts?limit=1000"), api("/lists"), api("/events")]);
-  CONTACTS = cs.contacts; LISTS = ls.lists; EVENTS = ev.events;
-  rebuildTagFilter(); renderActive();
+  const [cs, ls, ev, cos] = await Promise.all([api("/contacts?limit=1000"), api("/lists"), api("/events"), api("/companies")]);
+  CONTACTS = cs.contacts; LISTS = ls.lists; EVENTS = ev.events; COMPANIES = cos.companies || [];
+  rebuildTagFilter(); rebuildCompanyFilters(); renderActive();
 }
 
 function rebuildTagFilter(){
@@ -399,12 +433,21 @@ function rebuildTagFilter(){
   const tags = [...new Set(CONTACTS.flatMap(c => c.tags||[]))].sort();
   sel.innerHTML = `<option value="">All tags</option>` + tags.map(t=>`<option ${t===cur?"selected":""}>${esc(t)}</option>`).join("");
 }
+function rebuildCompanyFilters(){
+  const tagSel = $("#companyTagFilter"), tagCur = tagSel.value;
+  const tags = [...new Set(COMPANIES.flatMap(c => c.tags||[]))].sort();
+  tagSel.innerHTML = `<option value="">All company tags</option>` + tags.map(t=>`<option ${t===tagCur?"selected":""}>${esc(t)}</option>`).join("");
+  const statusSel = $("#companyStatusFilter"), statusCur = statusSel.value;
+  const statuses = [...new Set(COMPANIES.map(c=>c.status).filter(Boolean))].sort();
+  statusSel.innerHTML = `<option value="">All status</option>` + statuses.map(s=>`<option ${s===statusCur?"selected":""}>${esc(s)}</option>`).join("");
+}
 
 function renderActive(){
   if (view === "pipeline") return renderPipeline();
   if (view === "lists") return renderLists();
   if (view === "calendar") return renderCalendar();
   if (view === "outreach") return renderOutreach();
+  if (view === "companies") return renderCompanies();
   renderContacts();
 }
 
@@ -446,6 +489,85 @@ function renderContacts(){
   }
   $("#cstat").textContent = `${cs.length} of ${CONTACTS.length} contacts`;
   $("#stat").textContent = "";
+}
+
+/* ---------- Companies view ---------- */
+function domainOfCompany(c){
+  return (c.domains||[])[0] || (c.website||"").replace(/^https?:\/\//,"").split("/")[0];
+}
+function companyInitials(name){
+  return (name||"?").split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase();
+}
+function linkedContactCount(c){
+  const normalized = (c.name||"").trim().toLowerCase();
+  return CONTACTS.filter(ct => ct.companyId === c.id || (ct.company||"").trim().toLowerCase() === normalized).length;
+}
+function renderCompanies(){
+  let rows = COMPANIES.filter(matchesCompanySearch);
+  if (companyTagFilter) rows = rows.filter(c => (c.tags||[]).includes(companyTagFilter));
+  if (companyStatusFilter) rows = rows.filter(c => c.status === companyStatusFilter);
+  rows.sort((a,b)=> (b.confidence||"").localeCompare(a.confidence||"") || a.name.localeCompare(b.name));
+  const box = $("#companyTable"); box.innerHTML = "";
+  if (!rows.length) box.innerHTML = `<div class="empty">No companies match.</div>`;
+  else box.innerHTML = `<table class="company-table">
+    <thead><tr>
+      <th style="width:18%">Company</th>
+      <th style="width:14%">State</th>
+      <th style="width:31%">Fit</th>
+      <th style="width:24%">Next search</th>
+      <th style="width:8%">People</th>
+      <th style="width:5%">Source</th>
+    </tr></thead>
+    <tbody id="companyRows"></tbody>
+  </table>`;
+  const body = $("#companyRows");
+  for (const c of rows){
+    const el = document.createElement("tr"); el.className = "company-row"; el.dataset.id = c.id;
+    const status = c.status || "unknown", confidence = c.confidence || "unscored", people = linkedContactCount(c);
+    el.style.borderLeftColor = status === "research" ? "var(--accent)" : "var(--mut)";
+    el.innerHTML = `
+      <td>
+        <div class="nm">${esc(c.name)}</div>
+        ${c.website?`<a href="${esc(c.website)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(domainOfCompany(c))}</a>`:""}
+      </td>
+      <td>
+        <div class="company-tags">
+          <span class="pill stage">${esc(status)}</span>
+          <span class="pill icp">${esc(confidence)}</span>
+          ${(c.tags||[]).filter(t=>!t.startsWith("type:")&&!t.startsWith("confidence:")&&!t.startsWith("stage:")).slice(0,3).map(t=>`<span class="pill">${esc(t)}</span>`).join("")}
+        </div>
+      </td>
+      <td><div class="company-cell-muted company-line-clamp">${esc(c.fitReason || c.notes || "No fit reason yet.")}</div></td>
+      <td><div class="company-cell-muted company-line-clamp">${esc(c.suggestedAngle || "Find owner, founder, integrations, pricing, and live customer proof.")}</div></td>
+      <td><span class="pill">${people}</span></td>
+      <td>${c.sourceUrl?`<a class="company-source" href="${esc(c.sourceUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(c.sourceUrl)}">open</a>`:""}</td>`;
+    el.addEventListener("click", ()=>openCompany(c.id));
+    body.appendChild(el);
+  }
+  $("#companyStat").textContent = `${rows.length} of ${COMPANIES.length} companies`;
+  $("#stat").textContent = "";
+}
+function openCompany(id){
+  const c = COMPANIES.find(x=>x.id===id); if(!c) return;
+  const people = CONTACTS.filter(ct => ct.companyId === c.id || (ct.company||"").trim().toLowerCase() === (c.name||"").trim().toLowerCase());
+  $("#modal").innerHTML = `
+    <span class="x" onclick="closeTo()">×</span>
+    <h3>${esc(c.name)}</h3>
+    <div class="sub">${esc(c.status || "company")} · ${esc(c.confidence || "unscored")} confidence</div>
+    <div class="row">
+      <div><label>Website</label><input readonly value="${esc(c.website || "")}"></div>
+      <div><label>Domain</label><input readonly value="${esc(domainOfCompany(c) || "")}"></div>
+    </div>
+    <div class="row"><div><label>Fit reason</label><textarea readonly>${esc(c.fitReason || "")}</textarea></div></div>
+    <div class="row"><div><label>Next search</label><textarea readonly>${esc(c.suggestedAngle || "")}</textarea></div></div>
+    <div class="row"><div><label>Tags</label><input readonly value="${esc((c.tags||[]).join(", "))}"></div></div>
+    ${c.sourceUrl?`<div class="row"><div><label>Source</label><a href="${esc(c.sourceUrl)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">${esc(c.sourceUrl)}</a></div></div>`:""}
+    <div class="hist">
+      <label>Linked contacts</label>
+      ${people.length?people.map(p=>`<div class="it"><span class="w">${esc(p.name)}</span><span>${esc(p.title || "")}${p.linkedin?` · <a href="${esc(p.linkedin)}" target="_blank" rel="noopener" style="color:var(--accent)">LinkedIn</a>`:""}</span></div>`).join(""):`<div class="empty">No contacts connected yet.</div>`}
+    </div>
+    <div class="actions"><div class="grow"></div><button class="btn ghost" onclick="closeTo()">Close</button></div>`;
+  $("#scrim").classList.add("on");
 }
 
 /* ---------- Outreach today ---------- */
@@ -826,7 +948,7 @@ function applyRoute(){
   if (seg === "new"){ openDetail(null); return; }            // new-contact modal
   if ($("#scrim").classList.contains("on")) closeModal();    // any view route closes an open modal
   if (seg === "list" && arg){ listFilter = arg; showView("contacts"); return; }
-  const v = ["pipeline","lists","calendar","outreach","contacts"].includes(seg) ? seg : "contacts";
+  const v = ["pipeline","lists","calendar","outreach","contacts","companies"].includes(seg) ? seg : "contacts";
   showView(v);
 }
 // close the modal by navigating back to the current view's URL
@@ -838,6 +960,7 @@ window.addEventListener("hashchange", applyRoute);
 function showView(v){
   view=v; selIdx=-1;
   $("#viewContacts").classList.toggle("hide",v!=="contacts");
+  $("#viewCompanies").classList.toggle("hide",v!=="companies");
   $("#viewOutreach").classList.toggle("hide",v!=="outreach");
   $("#viewCalendar").classList.toggle("hide",v!=="calendar");
   $("#viewPipeline").classList.toggle("hide",v!=="pipeline");
@@ -854,6 +977,8 @@ $("#showAll").addEventListener("change",renderPipeline);
 $("#search").addEventListener("input",e=>{search=e.target.value.trim();renderActive();});
 $("#tagFilter").addEventListener("change",e=>{tagFilter=e.target.value;renderContacts();});
 $("#sort").addEventListener("change",e=>{sortBy=e.target.value;renderContacts();});
+$("#companyTagFilter").addEventListener("change",e=>{companyTagFilter=e.target.value;renderCompanies();});
+$("#companyStatusFilter").addEventListener("change",e=>{companyStatusFilter=e.target.value;renderCompanies();});
 $("#outReroll").addEventListener("click",()=>{ outSkipped.clear(); renderOutreach(); });
 $("#calNav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
   b.dataset.cal==="today"?calToday():calShift(b.dataset.cal==="next"?1:-1);});
@@ -863,10 +988,11 @@ $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.has
 $("#refresh").addEventListener("click",load);
 $("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim") closeTo(); });
 /* ---------- keyboard navigation ---------- */
-const KB_VIEWS = ["contacts","outreach","calendar","pipeline","lists"];
+const KB_VIEWS = ["contacts","companies","outreach","calendar","pipeline","lists"];
 // the highlightable rows/cards in the current list view
 function selEls(){
   if(view==="contacts") return [...document.querySelectorAll("#clist .crow")];
+  if(view==="companies") return [...document.querySelectorAll("#companyTable .company-row")];
   if(view==="outreach")  return [...document.querySelectorAll("#outList .out-card")];
   if(view==="lists")     return [...document.querySelectorAll("#llist .crow")];
   return [];
@@ -881,6 +1007,7 @@ function kbActivate(isSpace){
   const els = selEls(); const el = els[selIdx]; if(!el) return;
   if(view==="outreach" && isSpace){ el.querySelector("[data-sent]")?.click(); return; } // Space = mark sent
   if(view==="lists"){ el.querySelector("[data-open]")?.click(); return; }               // open the list
+  if(view==="companies"){ openCompany(el.dataset.id); return; }                         // open the company
   if(el.dataset.id) location.hash = "#c/"+el.dataset.id;                                  // open the contact
 }
 document.addEventListener("keydown",e=>{

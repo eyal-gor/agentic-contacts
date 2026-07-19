@@ -1,0 +1,21 @@
+name = "agentic-contacts"
+main = "src/worker.ts"
+compatibility_date = "2026-07-01"
+
+# The single-page UI. Served at / by the Worker runtime; the API routes below
+# still win because run_worker_first sends every request to the Worker first.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Contacts, companies, lists and interactions. Replaces the old data/*.json
+# files — Workers has no filesystem.
+[[d1_databases]]
+binding = "DB"
+database_name = "agentic-contacts"
+database_id = "b68bb761-3d41-4906-9f33-b8caae7e45f8"
+migrations_dir = "migrations"
+
+# API_KEY is a secret, not a var — set with:
+#   wrangler secret put API_KEY
+# The Worker refuses to serve without it (see worker.ts).

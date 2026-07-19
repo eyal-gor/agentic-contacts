@@ -1,22 +1,27 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { Company, CompanyInputT, CompanyPatchT } from "./schema.js";
+import { jsonList, toJson, buildSet } from "./db.js";
 
-const DATA_FILE = process.env.COMPANIES_DATA_FILE ?? "./data/companies.json";
+// D1-backed company store. `upsertByName` is the one Company Radar calls
+// (POST /companies?upsert=1), so it stays idempotent by folded name.
 
-async function load(): Promise<Company[]> {
-  try {
-    return JSON.parse(await readFile(DATA_FILE, "utf8")) as Company[];
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-}
+const JSON_FIELDS = ["domains", "tags"];
 
-async function persist(companies: Company[]): Promise<void> {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(companies, null, 2));
+function rowToCompany(row: Record<string, unknown>): Company {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    website: (row.website as string) ?? undefined,
+    domains: jsonList(row.domains),
+    tags: jsonList(row.tags),
+    notes: (row.notes as string) ?? undefined,
+    status: (row.status as string) ?? undefined,
+    sourceUrl: (row.sourceUrl as string) ?? undefined,
+    fitReason: (row.fitReason as string) ?? undefined,
+    suggestedAngle: (row.suggestedAngle as string) ?? undefined,
+    confidence: (row.confidence as string) ?? undefined,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
 }
 
 export interface ListOptions {
@@ -27,59 +32,96 @@ export interface ListOptions {
   offset?: number;
 }
 
-export async function list(opts: ListOptions = {}): Promise<Company[]> {
-  let companies = await load();
+export async function list(db: D1Database, opts: ListOptions = {}): Promise<Company[]> {
   const { q, tag, status, limit = 50, offset = 0 } = opts;
+  const where: string[] = [];
+  const binds: unknown[] = [];
+
   if (q) {
-    const needle = q.toLowerCase();
-    companies = companies.filter((co) =>
-      [co.name, co.website, co.notes, co.status, co.fitReason, co.suggestedAngle, co.sourceUrl, ...(co.domains || []), ...(co.tags || [])]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(needle)),
-    );
+    const cols = ["name", "website", "notes", "status", "fitReason", "suggestedAngle", "sourceUrl", "domains", "tags"];
+    where.push(`(${cols.map((c) => `lower(coalesce(${c}, '')) LIKE ?`).join(" OR ")})`);
+    for (let i = 0; i < cols.length; i++) binds.push(`%${q.toLowerCase()}%`);
   }
-  if (tag) companies = companies.filter((co) => (co.tags || []).includes(tag));
-  if (status) companies = companies.filter((co) => co.status === status);
-  return companies.slice(offset, offset + limit);
+  if (tag) {
+    where.push("tags LIKE ?");
+    binds.push(`%${JSON.stringify(tag)}%`);
+  }
+  if (status) {
+    where.push("status = ?");
+    binds.push(status);
+  }
+
+  const sql = `SELECT * FROM companies${where.length ? ` WHERE ${where.join(" AND ")}` : ""} LIMIT ? OFFSET ?`;
+  binds.push(limit, offset);
+  const { results } = await db.prepare(sql).bind(...binds).all();
+  return (results as Record<string, unknown>[]).map(rowToCompany);
 }
 
-export async function get(id: string): Promise<Company | null> {
-  return (await load()).find((co) => co.id === id) ?? null;
+export async function get(db: D1Database, id: string): Promise<Company | null> {
+  const row = await db.prepare("SELECT * FROM companies WHERE id = ?").bind(id).first();
+  return row ? rowToCompany(row as Record<string, unknown>) : null;
 }
 
-export async function findByName(name: string): Promise<Company | null> {
-  const needle = name.trim().toLowerCase();
-  return (await load()).find((co) => co.name.trim().toLowerCase() === needle) ?? null;
+export async function findByName(db: D1Database, name: string): Promise<Company | null> {
+  const row = await db
+    .prepare("SELECT * FROM companies WHERE lower(trim(name)) = ? LIMIT 1")
+    .bind(name.trim().toLowerCase())
+    .first();
+  return row ? rowToCompany(row as Record<string, unknown>) : null;
 }
 
-export async function create(input: CompanyInputT): Promise<Company> {
-  const companies = await load();
+export async function create(db: D1Database, input: CompanyInputT): Promise<Company> {
   const now = new Date().toISOString();
-  const company: Company = { id: randomUUID(), createdAt: now, updatedAt: now, ...input };
-  companies.push(company);
-  await persist(companies);
+  const company: Company = { id: crypto.randomUUID(), createdAt: now, updatedAt: now, ...input };
+  await db
+    .prepare(
+      `INSERT INTO companies
+        (id, name, website, domains, tags, notes, status, sourceUrl, fitReason, suggestedAngle, confidence, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      company.id,
+      company.name,
+      company.website ?? null,
+      toJson(company.domains),
+      toJson(company.tags),
+      company.notes ?? null,
+      company.status ?? null,
+      company.sourceUrl ?? null,
+      company.fitReason ?? null,
+      company.suggestedAngle ?? null,
+      company.confidence ?? null,
+      company.createdAt,
+      company.updatedAt,
+    )
+    .run();
   return company;
 }
 
-export async function update(id: string, patch: CompanyPatchT): Promise<Company | null> {
-  const companies = await load();
-  const idx = companies.findIndex((co) => co.id === id);
-  if (idx === -1) return null;
-  companies[idx] = { ...companies[idx], ...patch, updatedAt: new Date().toISOString() };
-  await persist(companies);
-  return companies[idx];
+export async function update(db: D1Database, id: string, patch: CompanyPatchT): Promise<Company | null> {
+  const existing = await get(db, id);
+  if (!existing) return null;
+
+  const { clause, values } = buildSet(patch as Record<string, unknown>, JSON_FIELDS);
+  const updatedAt = new Date().toISOString();
+  const sql = clause
+    ? `UPDATE companies SET ${clause}, updatedAt = ? WHERE id = ?`
+    : "UPDATE companies SET updatedAt = ? WHERE id = ?";
+  await db.prepare(sql).bind(...values, updatedAt, id).run();
+  return get(db, id);
 }
 
-export async function upsertByName(input: CompanyInputT): Promise<Company> {
-  const existing = await findByName(input.name);
-  if (!existing) return create(input);
-  return (await update(existing.id, { ...input, tags: [...new Set([...(existing.tags || []), ...(input.tags || [])])] }))!;
+export async function upsertByName(db: D1Database, input: CompanyInputT): Promise<Company> {
+  const existing = await findByName(db, input.name);
+  if (!existing) return create(db, input);
+  // Union the tags so a re-scan adds labels instead of dropping earlier ones.
+  return (await update(db, existing.id, {
+    ...input,
+    tags: [...new Set([...(existing.tags || []), ...(input.tags || [])])],
+  }))!;
 }
 
-export async function remove(id: string): Promise<boolean> {
-  const companies = await load();
-  const next = companies.filter((co) => co.id !== id);
-  if (next.length === companies.length) return false;
-  await persist(next);
-  return true;
+export async function remove(db: D1Database, id: string): Promise<boolean> {
+  const res = await db.prepare("DELETE FROM companies WHERE id = ?").bind(id).run();
+  return (res.meta?.changes ?? 0) > 0;
 }

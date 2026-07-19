@@ -1,69 +1,82 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { Interaction, InteractionInputT } from "./schema.js";
 
-// Separate file-backed collection for interactions (its own "table"), so it
-// maps cleanly onto a Supabase `interactions` table later.
-const DATA_FILE = process.env.INTERACTIONS_DATA_FILE ?? "./data/interactions.json";
+// D1-backed interaction log (conversation history per contact).
 
-async function load(): Promise<Interaction[]> {
-  try {
-    return JSON.parse(await readFile(DATA_FILE, "utf8")) as Interaction[];
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
+function rowToInteraction(row: Record<string, unknown>): Interaction {
+  return {
+    id: String(row.id),
+    contactId: String(row.contactId),
+    channel: row.channel as Interaction["channel"],
+    summary: String(row.summary),
+    occurredAt: String(row.occurredAt),
+    createdAt: String(row.createdAt),
+  };
 }
 
-async function persist(items: Interaction[]): Promise<void> {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(items, null, 2));
+export async function listForContact(db: D1Database, contactId: string): Promise<Interaction[]> {
+  const { results } = await db
+    .prepare("SELECT * FROM interactions WHERE contactId = ? ORDER BY occurredAt DESC")
+    .bind(contactId)
+    .all();
+  return (results as Record<string, unknown>[]).map(rowToInteraction);
 }
 
-// Newest first.
-export async function listForContact(contactId: string): Promise<Interaction[]> {
-  return (await load())
-    .filter((i) => i.contactId === contactId)
-    .sort((a, b) => (a.occurredAt < b.occurredAt ? 1 : -1));
-}
-
-export async function add(contactId: string, input: InteractionInputT): Promise<Interaction> {
-  const items = await load();
+export async function add(db: D1Database, contactId: string, input: InteractionInputT): Promise<Interaction> {
   const now = new Date().toISOString();
   const interaction: Interaction = {
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     contactId,
     channel: input.channel,
     summary: input.summary,
     occurredAt: input.occurredAt ?? now,
     createdAt: now,
   };
-  items.push(interaction);
-  await persist(items);
+  await db
+    .prepare(
+      `INSERT INTO interactions (id, contactId, channel, summary, occurredAt, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      interaction.id,
+      interaction.contactId,
+      interaction.channel,
+      interaction.summary,
+      interaction.occurredAt,
+      interaction.createdAt,
+    )
+    .run();
   return interaction;
 }
 
-// Every interaction (for the calendar / activity views).
-export async function all(): Promise<Interaction[]> {
-  return load();
+/** Every interaction (for the calendar / activity views). */
+export async function all(db: D1Database): Promise<Interaction[]> {
+  const { results } = await db.prepare("SELECT * FROM interactions ORDER BY occurredAt DESC").all();
+  return (results as Record<string, unknown>[]).map(rowToInteraction);
 }
 
-// One pass to find the latest interaction per contact — used to enrich list().
-export async function lastByContact(): Promise<Record<string, Interaction>> {
+/**
+ * Latest interaction per contact — enriches list().
+ * The window function does in SQL what the old one-pass loop did in memory.
+ */
+export async function lastByContact(db: D1Database): Promise<Record<string, Interaction>> {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM (
+         SELECT *, ROW_NUMBER() OVER (PARTITION BY contactId ORDER BY occurredAt DESC) AS rn
+         FROM interactions
+       ) WHERE rn = 1`,
+    )
+    .all();
   const map: Record<string, Interaction> = {};
-  for (const i of await load()) {
-    const cur = map[i.contactId];
-    if (!cur || i.occurredAt > cur.occurredAt) map[i.contactId] = i;
+  for (const row of results as Record<string, unknown>[]) {
+    const i = rowToInteraction(row);
+    map[i.contactId] = i;
   }
   return map;
 }
 
-// Cascade cleanup when a contact is deleted.
-export async function removeForContact(contactId: string): Promise<number> {
-  const items = await load();
-  const next = items.filter((i) => i.contactId !== contactId);
-  const removed = items.length - next.length;
-  if (removed) await persist(next);
-  return removed;
+/** Cascade cleanup when a contact is deleted. */
+export async function removeForContact(db: D1Database, contactId: string): Promise<number> {
+  const res = await db.prepare("DELETE FROM interactions WHERE contactId = ?").bind(contactId).run();
+  return res.meta?.changes ?? 0;
 }

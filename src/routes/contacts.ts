@@ -2,29 +2,23 @@ import { Hono } from "hono";
 import { ContactInput, ContactPatch, InteractionInput } from "../schema.js";
 import * as store from "../store.js";
 import * as interactions from "../interactions.js";
+import { requireApiKey } from "../auth.js";
+import type { Env } from "../db.js";
 
-export const contacts = new Hono();
+export const contacts = new Hono<{ Bindings: Env }>();
 
-// Optional single-key auth. If API_KEY is unset the API is open (dev mode).
-const API_KEY = process.env.API_KEY;
-contacts.use("*", async (c, next) => {
-  if (!API_KEY) return next();
-  if (c.req.header("Authorization") !== `Bearer ${API_KEY}`) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  return next();
-});
+contacts.use("*", requireApiKey);
 
 contacts.get("/", async (c) => {
   const { q, tag, limit, offset } = c.req.query();
-  const result = await store.list({
+  const result = await store.list(c.env.DB, {
     q,
     tag,
     limit: limit ? Number(limit) : undefined,
     offset: offset ? Number(offset) : undefined,
   });
-  const lastMap = await interactions.lastByContact();
-  let enriched = result.map((c) => ({ ...c, lastInteraction: lastMap[c.id] ?? null }));
+  const lastMap = await interactions.lastByContact(c.env.DB);
+  let enriched = result.map((ct) => ({ ...ct, lastInteraction: lastMap[ct.id] ?? null }));
 
   // ?due=overdue|today|week|all → only contacts with a follow-up due by the
   // window, soonest-first. Anything without followUpAt is excluded.
@@ -38,7 +32,7 @@ contacts.get("/", async (c) => {
     else if (due === "all") cutoff = Infinity;
     else cutoff = Date.parse(due) || now; // explicit ISO cutoff
     enriched = enriched
-      .filter((c) => c.followUpAt && Date.parse(c.followUpAt) <= cutoff)
+      .filter((ct) => ct.followUpAt && Date.parse(ct.followUpAt) <= cutoff)
       .sort((a, b) => Date.parse(a.followUpAt!) - Date.parse(b.followUpAt!));
   }
 
@@ -63,43 +57,43 @@ contacts.get("/", async (c) => {
 contacts.post("/", async (c) => {
   const parsed = ContactInput.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "invalid", issues: parsed.error.issues }, 400);
-  return c.json(await store.create(parsed.data), 201);
+  return c.json(await store.create(c.env.DB, parsed.data), 201);
 });
 
 contacts.get("/:id", async (c) => {
-  const found = await store.get(c.req.param("id"));
+  const found = await store.get(c.env.DB, c.req.param("id"));
   if (!found) return c.json({ error: "not found" }, 404);
-  const lastInteraction = (await interactions.listForContact(found.id))[0] ?? null;
+  const lastInteraction = (await interactions.listForContact(c.env.DB, found.id))[0] ?? null;
   return c.json({ ...found, lastInteraction });
 });
 
 // --- Interactions (conversation history) ---------------------------------
 contacts.get("/:id/interactions", async (c) => {
-  const found = await store.get(c.req.param("id"));
+  const found = await store.get(c.env.DB, c.req.param("id"));
   if (!found) return c.json({ error: "not found" }, 404);
-  const items = await interactions.listForContact(found.id);
+  const items = await interactions.listForContact(c.env.DB, found.id);
   return c.json({ interactions: items, count: items.length });
 });
 
 contacts.post("/:id/interactions", async (c) => {
-  const found = await store.get(c.req.param("id"));
+  const found = await store.get(c.env.DB, c.req.param("id"));
   if (!found) return c.json({ error: "not found" }, 404);
   const parsed = InteractionInput.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "invalid", issues: parsed.error.issues }, 400);
-  return c.json(await interactions.add(found.id, parsed.data), 201);
+  return c.json(await interactions.add(c.env.DB, found.id, parsed.data), 201);
 });
 
 contacts.patch("/:id", async (c) => {
   const parsed = ContactPatch.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "invalid", issues: parsed.error.issues }, 400);
-  const updated = await store.update(c.req.param("id"), parsed.data);
+  const updated = await store.update(c.env.DB, c.req.param("id"), parsed.data);
   return updated ? c.json(updated) : c.json({ error: "not found" }, 404);
 });
 
 contacts.delete("/:id", async (c) => {
   const id = c.req.param("id");
-  const ok = await store.remove(id);
+  const ok = await store.remove(c.env.DB, id);
   if (!ok) return c.json({ error: "not found" }, 404);
-  await interactions.removeForContact(id);
+  await interactions.removeForContact(c.env.DB, id);
   return c.body(null, 204);
 });
