@@ -16,6 +16,8 @@ export const ContactInput = z.object({
   // nullable so a PATCH can clear it by sending null.
   followUpAt: z.string().nullable().optional(),
   followUpNote: z.string().nullable().optional(),
+  // Who created the record — see companies.addedBy.
+  addedBy: z.string().optional(),
 });
 
 // Every field optional for partial updates.
@@ -43,6 +45,9 @@ export const CompanyInput = z.object({
   fitReason: z.string().optional(),
   suggestedAngle: z.string().optional(),
   confidence: z.string().optional(),
+  // Who created the record — "Eyal (person)", "Contact Keeper (system)",
+  // "Prospect Hunter (agent)". Set on create; upserts keep the original.
+  addedBy: z.string().optional(),
 });
 
 export const CompanyPatch = CompanyInput.partial();

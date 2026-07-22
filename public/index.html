@@ -519,6 +519,12 @@ function linkedContactCount(c){
   const normalized = (c.name||"").trim().toLowerCase();
   return CONTACTS.filter(ct => ct.companyId === c.id || (ct.company||"").trim().toLowerCase() === normalized).length;
 }
+function addedInfo(rec){
+  if(!rec.createdAt) return "";
+  const d=new Date(rec.createdAt), days=Math.floor((Date.now()-d)/864e5);
+  const when=days<=0?"today":days===1?"yesterday":days<30?days+"d ago":d.toISOString().slice(0,10);
+  return when+(rec.addedBy?" · "+rec.addedBy:"");
+}
 function renderCompanies(){
   let rows = COMPANIES.filter(matchesCompanySearch);
   if (companyTagFilter) rows = rows.filter(c => (c.tags||[]).includes(companyTagFilter));
@@ -530,8 +536,9 @@ function renderCompanies(){
     <thead><tr>
       <th style="width:18%">Company</th>
       <th style="width:14%">State</th>
-      <th style="width:31%">Fit</th>
-      <th style="width:24%">Next search</th>
+      <th style="width:27%">Fit</th>
+      <th style="width:16%">Next search</th>
+      <th style="width:12%">Added</th>
       <th style="width:8%">People</th>
       <th style="width:5%">Source</th>
     </tr></thead>
@@ -556,6 +563,7 @@ function renderCompanies(){
       </td>
       <td><div class="company-cell-muted company-line-clamp">${esc(c.fitReason || c.notes || "No fit reason yet.")}</div></td>
       <td><div class="company-cell-muted company-line-clamp">${esc(c.suggestedAngle || "Find owner, founder, integrations, pricing, and live customer proof.")}</div></td>
+      <td><div class="company-cell-muted" title="${esc(c.createdAt||"")}">${esc(addedInfo(c))}</div></td>
       <td><span class="pill">${people}</span></td>
       <td>${c.sourceUrl?`<a class="company-source" href="${esc(c.sourceUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(c.sourceUrl)}">open</a>`:""}</td>`;
     el.addEventListener("click", ()=>openCompany(c.id));
@@ -570,7 +578,7 @@ function openCompany(id){
   $("#modal").innerHTML = `
     <span class="x" onclick="closeTo()">×</span>
     <h3>${esc(c.name)}</h3>
-    <div class="sub">${esc(c.status || "company")} · ${esc(c.confidence || "unscored")} confidence</div>
+    <div class="sub">${esc(c.status || "company")} · ${esc(c.confidence || "unscored")} confidence${addedInfo(c)?` · added ${esc(addedInfo(c))}`:""}</div>
     <div class="row">
       <div><label>Website</label><input readonly value="${esc(c.website || "")}"></div>
       <div><label>Domain</label><input readonly value="${esc(domainOfCompany(c) || "")}"></div>
@@ -813,7 +821,8 @@ function renderPipeline(){
       el.innerHTML=`<div class="nm">${esc(c.name)}</div>${c.company?`<div class="co">${esc(c.company)}</div>`:""}
         <div class="meta">${icp?`<span class="pill icp">icp:${esc(icp)}</span>`:""}
         ${c.followUpAt?`<span class="pill next ${nc}">${c.followUpAt.slice(0,10)}</span>`:""}
-        ${freeTags(c).slice(0,2).map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`;
+        ${freeTags(c).slice(0,2).map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>
+        ${addedInfo(c)?`<div class="co" title="${esc(c.createdAt||"")}">added ${esc(addedInfo(c))}</div>`:""}`;
       el.addEventListener("dragstart",e=>e.dataTransfer.setData("text/plain",c.id));
       el.addEventListener("click",()=>{ location.hash = "#c/"+c.id; });
       drop.appendChild(el);

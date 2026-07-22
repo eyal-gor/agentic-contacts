@@ -19,6 +19,7 @@ function rowToCompany(row: Record<string, unknown>): Company {
     fitReason: (row.fitReason as string) ?? undefined,
     suggestedAngle: (row.suggestedAngle as string) ?? undefined,
     confidence: (row.confidence as string) ?? undefined,
+    addedBy: (row.addedBy as string) ?? undefined,
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };
@@ -76,8 +77,8 @@ export async function create(db: D1Database, input: CompanyInputT): Promise<Comp
   await db
     .prepare(
       `INSERT INTO companies
-        (id, name, website, domains, tags, notes, status, sourceUrl, fitReason, suggestedAngle, confidence, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, name, website, domains, tags, notes, status, sourceUrl, fitReason, suggestedAngle, confidence, addedBy, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       company.id,
@@ -91,6 +92,7 @@ export async function create(db: D1Database, input: CompanyInputT): Promise<Comp
       company.fitReason ?? null,
       company.suggestedAngle ?? null,
       company.confidence ?? null,
+      company.addedBy ?? null,
       company.createdAt,
       company.updatedAt,
     )
@@ -115,10 +117,14 @@ export async function upsertByName(db: D1Database, input: CompanyInputT): Promis
   const existing = await findByName(db, input.name);
   if (!existing) return create(db, input);
   // Union the tags so a re-scan adds labels instead of dropping earlier ones.
-  return (await update(db, existing.id, {
+  const patch: CompanyPatchT = {
     ...input,
     tags: [...new Set([...(existing.tags || []), ...(input.tags || [])])],
-  }))!;
+  };
+  // Provenance is create-time truth: a later upsert never rewrites who
+  // originally added the record.
+  if (existing.addedBy) delete patch.addedBy;
+  return (await update(db, existing.id, patch))!;
 }
 
 export async function remove(db: D1Database, id: string): Promise<boolean> {
