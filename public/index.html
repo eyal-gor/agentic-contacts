@@ -79,6 +79,14 @@
   select.flat:focus { outline: 0; border-color: var(--accent); }
 
   .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 14px 18px 0; }
+  .chipbars { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+  .chiprow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .chiprow .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); width: 64px; flex-shrink: 0; }
+  .chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; }
+  .chip:hover { color: var(--text); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip .n { opacity: .65; margin-left: 4px; font-size: 11px; }
   .seg { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   .seg button { background: transparent; color: var(--muted); border: 0; padding: 6px 12px;
     cursor: pointer; font: inherit; font-weight: 500; }
@@ -306,8 +314,7 @@
     <!-- COMPANIES VIEW -->
     <section id="viewCompanies" class="scroll hide">
       <div class="toolbar">
-        <select class="flat" id="companyTagFilter"><option value="">All company tags</option></select>
-        <select class="flat" id="companyStatusFilter"><option value="">All status</option></select>
+        <div class="chipbars" id="companyChips"></div>
         <span id="companyStat" class="muted"></span>
       </div>
       <div class="company-table-wrap" id="companyTable"></div>
@@ -384,7 +391,7 @@ let LISTS = [];
 let EVENTS = [];
 let COMPANIES = [];
 let view = "contacts";
-let icpFilter = "", dueFilter = "", search = "", tagFilter = "", sortBy = "name", listFilter = "", companyTagFilter = "", companyStatusFilter = "";
+let icpFilter = "", dueFilter = "", search = "", tagFilter = "", sortBy = "name", listFilter = "", companyTagFilter = "", companyStatusFilter = "", companyAddedByFilter = "";
 let detailId = null;
 let calY = +TODAY.slice(0,4), calM = +TODAY.slice(5,7) - 1; // calendar month (0-indexed)
 let calExpanded = new Set(); // ISO dates whose "+N more" has been expanded to show all events
@@ -440,7 +447,7 @@ function matchesCompanySearch(c){
 }
 
 async function load(){
-  const [cs, ls, ev, cos] = await Promise.all([api("/contacts?limit=1000"), api("/lists"), api("/events"), api("/companies")]);
+  const [cs, ls, ev, cos] = await Promise.all([api("/contacts?limit=1000"), api("/lists"), api("/events"), api("/companies?limit=1000")]);
   CONTACTS = cs.contacts; LISTS = ls.lists; EVENTS = ev.events; COMPANIES = cos.companies || [];
   rebuildTagFilter(); rebuildCompanyFilters(); renderActive();
 }
@@ -451,12 +458,29 @@ function rebuildTagFilter(){
   sel.innerHTML = `<option value="">All tags</option>` + tags.map(t=>`<option ${t===cur?"selected":""}>${esc(t)}</option>`).join("");
 }
 function rebuildCompanyFilters(){
-  const tagSel = $("#companyTagFilter"), tagCur = tagSel.value;
-  const tags = [...new Set(COMPANIES.flatMap(c => c.tags||[]))].sort();
-  tagSel.innerHTML = `<option value="">All company tags</option>` + tags.map(t=>`<option ${t===tagCur?"selected":""}>${esc(t)}</option>`).join("");
-  const statusSel = $("#companyStatusFilter"), statusCur = statusSel.value;
-  const statuses = [...new Set(COMPANIES.map(c=>c.status).filter(Boolean))].sort();
-  statusSel.innerHTML = `<option value="">All status</option>` + statuses.map(s=>`<option ${s===statusCur?"selected":""}>${esc(s)}</option>`).join("");
+  // One-click chips with counts, one row per dimension. A tag every company
+  // carries can't filter anything — only show tags that actually split the
+  // list (and hide the boilerplate namespaces).
+  const total = COMPANIES.length;
+  const count = (fn) => { const m = new Map(); for (const c of COMPANIES){ for (const v of fn(c)) m.set(v,(m.get(v)||0)+1); } return m; };
+  const tagCounts = count(c => (c.tags||[]).filter(t => !t.startsWith("type:") && !t.startsWith("project:")));
+  const tags = [...tagCounts].filter(([,n]) => n < total).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const statuses = [...count(c => c.status ? [c.status] : [])].sort((a,b)=>b[1]-a[1]);
+  const sources = [...count(c => c.addedBy ? [c.addedBy] : [])].sort((a,b)=>b[1]-a[1]);
+  const row = (label, items, cur, key) => items.length < 2 && !cur ? "" :
+    `<div class="chiprow"><span class="lbl">${label}</span>${items.map(([v,n]) =>
+      `<span class="chip ${v===cur?"on":""}" data-k="${key}" data-v="${esc(v)}">${esc(v.replace(/ \((system|person|agent)\)$/,""))}<span class="n">${n}</span></span>`).join("")}</div>`;
+  $("#companyChips").innerHTML =
+    row("Status", statuses, companyStatusFilter, "status") +
+    row("Added by", sources, companyAddedByFilter, "addedBy") +
+    row("Tags", tags, companyTagFilter, "tag");
+  $("#companyChips").querySelectorAll(".chip").forEach(el => el.addEventListener("click", () => {
+    const v = el.dataset.v, k = el.dataset.k;
+    if (k === "status") companyStatusFilter = companyStatusFilter === v ? "" : v;
+    if (k === "addedBy") companyAddedByFilter = companyAddedByFilter === v ? "" : v;
+    if (k === "tag") companyTagFilter = companyTagFilter === v ? "" : v;
+    rebuildCompanyFilters(); renderCompanies();
+  }));
 }
 
 function renderActive(){
@@ -529,6 +553,7 @@ function renderCompanies(){
   let rows = COMPANIES.filter(matchesCompanySearch);
   if (companyTagFilter) rows = rows.filter(c => (c.tags||[]).includes(companyTagFilter));
   if (companyStatusFilter) rows = rows.filter(c => c.status === companyStatusFilter);
+  if (companyAddedByFilter) rows = rows.filter(c => c.addedBy === companyAddedByFilter);
   rows.sort((a,b)=> (b.confidence||"").localeCompare(a.confidence||"") || a.name.localeCompare(b.name));
   const box = $("#companyTable"); box.innerHTML = "";
   if (!rows.length) box.innerHTML = `<div class="empty">No companies match.</div>`;
@@ -558,15 +583,20 @@ function renderCompanies(){
         <div class="company-tags">
           <span class="pill stage">${esc(status)}</span>
           <span class="pill icp">${esc(confidence)}</span>
-          ${(c.tags||[]).filter(t=>!t.startsWith("type:")&&!t.startsWith("confidence:")&&!t.startsWith("stage:")).slice(0,3).map(t=>`<span class="pill">${esc(t)}</span>`).join("")}
+          ${(c.tags||[]).filter(t=>!t.startsWith("type:")&&!t.startsWith("confidence:")&&!t.startsWith("stage:")).slice(0,3).map(t=>`<span class="pill pill-click" data-tag="${esc(t)}">${esc(t)}</span>`).join("")}
         </div>
       </td>
       <td><div class="company-cell-muted company-line-clamp">${esc(c.fitReason || c.notes || "No fit reason yet.")}</div></td>
       <td><div class="company-cell-muted company-line-clamp">${esc(c.suggestedAngle || "Find owner, founder, integrations, pricing, and live customer proof.")}</div></td>
       <td><div class="company-cell-muted" title="${esc(c.createdAt||"")}">${esc(addedInfo(c))}</div></td>
       <td><span class="pill">${people}</span></td>
-      <td>${c.sourceUrl?`<a class="company-source" href="${esc(c.sourceUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(c.sourceUrl)}">open</a>`:""}</td>`;
+      <td>${c.sourceUrl?`<a class="company-source" href="${esc(c.sourceUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(c.sourceUrl)}">${esc((()=>{try{return new URL(c.sourceUrl).hostname.replace(/^www\./,"")}catch{return "open"}})())}</a>`:""}</td>`;
     el.addEventListener("click", ()=>openCompany(c.id));
+    el.querySelectorAll(".pill-click").forEach(p => p.addEventListener("click", (e) => {
+      e.stopPropagation();
+      companyTagFilter = companyTagFilter === p.dataset.tag ? "" : p.dataset.tag;
+      rebuildCompanyFilters(); renderCompanies();
+    }));
     body.appendChild(el);
   }
   $("#companyStat").textContent = `${rows.length} of ${COMPANIES.length} companies`;
@@ -1003,8 +1033,7 @@ $("#showAll").addEventListener("change",renderPipeline);
 $("#search").addEventListener("input",e=>{search=e.target.value.trim();renderActive();});
 $("#tagFilter").addEventListener("change",e=>{tagFilter=e.target.value;renderContacts();});
 $("#sort").addEventListener("change",e=>{sortBy=e.target.value;renderContacts();});
-$("#companyTagFilter").addEventListener("change",e=>{companyTagFilter=e.target.value;renderCompanies();});
-$("#companyStatusFilter").addEventListener("change",e=>{companyStatusFilter=e.target.value;renderCompanies();});
+
 $("#outReroll").addEventListener("click",()=>{ outSkipped.clear(); renderOutreach(); });
 $("#calNav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
   b.dataset.cal==="today"?calToday():calShift(b.dataset.cal==="next"?1:-1);});
