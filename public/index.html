@@ -651,9 +651,15 @@ function openCompany(id){
       <label>Linked contacts</label>
       ${people.length?people.map(p=>`<div class="it"><span class="w">${esc(p.name)}</span><span>${esc(p.title || "")}${p.linkedin?` · <a href="${esc(p.linkedin)}" target="_blank" rel="noopener" style="color:var(--accent)">LinkedIn</a>`:""}</span></div>`).join(""):`<div class="empty">No contacts connected yet.</div>`}
     </div>
-    <div class="actions"><div class="grow"></div><button class="btn ghost" onclick="closeTo()">Close</button></div>`;
+    <div class="actions"><button class="btn danger" onclick="delCompany('${c.id}')">Delete</button><div class="grow"></div><button class="btn ghost" onclick="closeTo()">Close</button></div>`;
   $("#scrim").classList.add("on");
 }
+async function delCompany(id){
+  const c = COMPANIES.find(x=>x.id===id);
+  if (!confirm(`Delete company "${c ? c.name : id}"? Contacts are kept — only the company record is removed.`)) return;
+  await api(`/companies/${id}`,{method:"DELETE"}); await load(); location.hash = "#"+view; toast("Deleted");
+}
+window.delCompany = delCompany;
 
 /* ---------- Outreach today ---------- */
 const sentToday = c => (c.tags||[]).includes("outreach:"+NOW_DATE);
