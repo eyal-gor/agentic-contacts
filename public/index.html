@@ -45,6 +45,7 @@
     padding: 7px 9px; border-radius: 6px; cursor: pointer; transition: background .1s, color .1s; }
   .nav button:hover { background: rgba(255,255,255,.04); color: var(--text); }
   .nav button.on { background: rgba(255,255,255,.07); color: var(--text); }
+  .navCount { margin-left: auto; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
   .nav button::before { content: ""; width: 6px; height: 6px; border-radius: 2px; background: currentColor; opacity: .55; }
   .side-label { color: var(--faint); font-size: 11px; font-weight: 500; text-transform: uppercase;
     letter-spacing: .06em; padding: 16px 9px 6px; }
@@ -283,8 +284,8 @@
     <div class="brand"><div class="ws-badge">A</div><div class="ws-name">Agentic Contacts</div></div>
     <div class="side-label">Views</div>
     <nav class="nav" id="nav">
-      <button data-view="contacts" class="on">Contacts</button>
-      <button data-view="companies">Companies</button>
+      <button data-view="contacts" class="on">Contacts <span class="navCount" id="navContactCount"></span></button>
+      <button data-view="companies">Companies <span class="navCount" id="navCompanyCount"></span></button>
       <button data-view="outreach">Outreach today</button>
       <button data-view="calendar">Calendar</button>
       <button data-view="pipeline">Pipeline</button>
@@ -480,6 +481,8 @@ function matchesCompanySearch(c){
 async function load(){
   const [cs, ls, ev, cos] = await Promise.all([api("/contacts?limit=1000"), api("/lists"), api("/events"), api("/companies?limit=1000")]);
   CONTACTS = cs.contacts; LISTS = ls.lists; EVENTS = ev.events; COMPANIES = cos.companies || [];
+  $("#navContactCount").textContent = CONTACTS.length;
+  $("#navCompanyCount").textContent = COMPANIES.length;
   rebuildTagFilter(); rebuildCompanyFilters(); renderActive();
 }
 
