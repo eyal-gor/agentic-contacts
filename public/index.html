@@ -319,6 +319,7 @@
           <option value="recent">Sort: Recently talked</option>
           <option value="stale">Sort: Neglected first</option>
           <option value="next">Sort: Follow-up due</option>
+          <option value="added">Sort: Newest added</option>
         </select>
         <span id="cstat" class="muted"></span>
       </div>
@@ -536,6 +537,7 @@ function renderContacts(){
   if (tagFilter) cs = cs.filter(c => (c.tags||[]).includes(tagFilter));
   cs.sort((a,b)=>{
     if (sortBy==="name") return a.name.localeCompare(b.name);
+    if (sortBy==="added") return (b.createdAt||"") < (a.createdAt||"") ? -1 : 1;
     if (sortBy==="next") return (a.followUpAt||"9999")<(b.followUpAt||"9999")?-1:1;
     const av=lastDate(a), bv=lastDate(b);
     if (av===bv) return 0; if(!av) return sortBy==="stale"?-1:1; if(!bv) return sortBy==="stale"?1:-1;
