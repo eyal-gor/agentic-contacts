@@ -240,6 +240,11 @@
   .guess span { font-family: var(--mono, "SF Mono", Menlo, monospace); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
   .hist { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
+  .quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 12px; }
+  .quick a { font-size: 12px; font-weight: 600; color: var(--text); text-decoration: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 9px; }
+  .quick a:hover { border-color: var(--accent); color: var(--accent); }
+  #dNotes { min-height: 92px; }
   .hist .it { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
   .hist .it .w { color: var(--muted); white-space: nowrap; font-size: 12px; }
   .x { float: right; cursor: pointer; color: var(--muted); font-size: 22px; line-height: 1; font-weight: 400; }
@@ -922,10 +927,35 @@ async function openDetail(id){
   const hist = id ? (await api(`/contacts/${id}/interactions`)).interactions : [];
   const stage = stageOf(c)||"", icp = icpOf(c)||"", circle = circleOf(c)||"";
   const liSearch = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(((c.name||"")+" "+(c.company||"")).trim())}`;
+  // Company record behind this contact, if the companies table knows it.
+  const compRec = id ? COMPANIES.find(co => co.id === c.companyId
+    || (c.company||"").trim().toLowerCase() === (co.name||"").trim().toLowerCase()) : null;
+  const quickActions = id ? `
+    <div class="quick">
+      ${(c.emails&&c.emails[0])?`<a href="mailto:${esc(c.emails[0])}">✉ ${esc(c.emails[0])}</a>`:""}
+      ${c.linkedin?`<a href="${esc(c.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a>`:""}
+      ${compRec?`<a href="#co/${compRec.id}">${esc(compRec.name)} ↗</a>`:""}
+      ${(c.phones&&c.phones[0])?`<a href="tel:${esc(c.phones[0])}">${esc(c.phones[0])}</a>`:""}
+    </div>` : "";
+  const logAndHist = id ? `
+    <div class="hist" style="border-top:0;margin-top:2px;padding-top:0">
+      <label>Log interaction</label>
+      <div class="row">
+        <div style="flex:0 0 110px"><select class="field" id="logCh">${["call","email","meeting","message","note"].map(x=>`<option>${x}</option>`).join("")}</select></div>
+        <div style="flex:1"><input id="logSum" placeholder="what happened…"></div>
+        <div style="flex:0 0 140px"><input type="date" id="logNext" title="next follow-up (optional)" value=""></div>
+        <button class="btn" id="logBtn">Log</button>
+      </div>
+      <div class="sub" style="margin:-4px 0 6px">${c.followUpAt?`Next follow-up: <b>${esc(c.followUpAt.slice(0,10))}</b>${c.followUpNote?` — ${esc(c.followUpNote)}`:""}`:"No follow-up set — add a date when you log, or below."}</div>
+      ${hist.length?hist.map(i=>`<div class="it"><span class="w">${i.occurredAt.slice(0,10)} · ${i.channel}</span><span>${esc(i.summary)}</span></div>`).join(""):`<div class="empty">No interactions yet.</div>`}
+    </div>
+    <div class="side-label" style="padding:14px 0 4px">Details</div>` : "";
   $("#modal").innerHTML = `
     <span class="x" onclick="closeTo()">×</span>
     <h3>${id?esc(c.name):"New contact"}</h3>
-    <div class="sub">${id?"Edit contact, log interactions, set follow-up":"Add someone to your contacts"}</div>
+    <div class="sub">${id?[c.title,c.company].filter(Boolean).map(esc).join(" · ")||"Log interactions, set follow-up, edit details":"Add someone to your contacts"}</div>
+    ${quickActions}
+    ${logAndHist}
     <div class="row">
       <div><label>Name</label><input id="dName" value="${esc(c.name)}"></div>
       <div><label>Company</label><input id="dCompany" value="${esc(c.company)}"></div>
@@ -965,17 +995,7 @@ async function openDetail(id){
       <div class="grow"></div>
       <button class="btn ghost" onclick="closeTo()">Close</button>
       <button class="btn" id="saveBtn">Save</button>
-    </div>
-    ${id?`
-    <div class="hist">
-      <label>Log interaction</label>
-      <div class="row">
-        <div style="flex:0 0 130px"><select class="field" id="logCh">${["call","email","meeting","message","note"].map(x=>`<option>${x}</option>`).join("")}</select></div>
-        <div style="flex:1"><input id="logSum" placeholder="what happened…"></div>
-        <button class="btn" id="logBtn">Log</button>
-      </div>
-      ${hist.length?hist.map(i=>`<div class="it"><span class="w">${i.occurredAt.slice(0,10)} · ${i.channel}</span><span>${esc(i.summary)}</span></div>`).join(""):`<div class="empty">No interactions yet.</div>`}
-    </div>`:""}`;
+    </div>`;
   $("#saveBtn").onclick = saveDetail;
   if (id){ $("#delBtn").onclick = ()=>delContact(id); $("#logBtn").onclick = ()=>logInteraction(id); }
   if ($("#emailGuesses")){ renderEmailGuesses(); $("#dDomain").addEventListener("input", renderEmailGuesses); $("#dName").addEventListener("input", renderEmailGuesses); }
@@ -1032,7 +1052,9 @@ async function delContact(id){
 async function logInteraction(id){
   const sum = $("#logSum").value.trim(); if(!sum){ toast("Write what happened"); return; }
   await api(`/contacts/${id}/interactions`,{method:"POST",body:JSON.stringify({channel:$("#logCh").value,summary:sum})});
-  await load(); openDetail(id); toast("Logged");
+  const next = $("#logNext") && $("#logNext").value;
+  if (next) await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({followUpAt:next})});
+  await load(); openDetail(id); toast(next?"Logged · follow-up "+next:"Logged");
 }
 
 /* ---------- URL routing (hash is the source of truth) ---------- */
