@@ -591,7 +591,7 @@ function renderCompanies(){
       <td><div class="company-cell-muted" title="${esc(c.createdAt||"")}">${esc(addedInfo(c))}</div></td>
       <td><span class="pill">${people}</span></td>
       <td>${c.sourceUrl?`<a class="company-source" href="${esc(c.sourceUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(c.sourceUrl)}">${esc((()=>{try{return new URL(c.sourceUrl).hostname.replace(/^www\./,"")}catch{return "open"}})())}</a>`:""}</td>`;
-    el.addEventListener("click", ()=>openCompany(c.id));
+    el.addEventListener("click", ()=>{ location.hash = "#co/"+c.id; });
     el.querySelectorAll(".pill-click").forEach(p => p.addEventListener("click", (e) => {
       e.stopPropagation();
       companyTagFilter = companyTagFilter === p.dataset.tag ? "" : p.dataset.tag;
@@ -603,7 +603,7 @@ function renderCompanies(){
   $("#stat").textContent = "";
 }
 function openCompany(id){
-  const c = COMPANIES.find(x=>x.id===id); if(!c) return;
+  const c = COMPANIES.find(x=>x.id===id); if(!c){ location.replace("#companies"); return; }
   const people = CONTACTS.filter(ct => ct.companyId === c.id || (ct.company||"").trim().toLowerCase() === (c.name||"").trim().toLowerCase());
   $("#modal").innerHTML = `
     <span class="x" onclick="closeTo()">×</span>
@@ -1002,6 +1002,10 @@ function applyRoute(){
   const [seg, arg] = raw.split("/");
   if (seg === "c" && arg){ openDetail(arg); return; }        // contact modal
   if (seg === "new"){ openDetail(null); return; }            // new-contact modal
+  if (seg === "co" && arg){                                  // company modal
+    if (view !== "companies") showView("companies");         // direct link: render the list behind it
+    openCompany(arg); return;
+  }
   if ($("#scrim").classList.contains("on")) closeModal();    // any view route closes an open modal
   if (seg === "list" && arg){ listFilter = arg; showView("contacts"); return; }
   const v = ["pipeline","lists","calendar","outreach","contacts","companies"].includes(seg) ? seg : "contacts";
@@ -1062,7 +1066,7 @@ function kbActivate(isSpace){
   const els = selEls(); const el = els[selIdx]; if(!el) return;
   if(view==="outreach" && isSpace){ el.querySelector("[data-sent]")?.click(); return; } // Space = mark sent
   if(view==="lists"){ el.querySelector("[data-open]")?.click(); return; }               // open the list
-  if(view==="companies"){ openCompany(el.dataset.id); return; }                         // open the company
+  if(view==="companies"){ location.hash = "#co/"+el.dataset.id; return; }               // open the company
   if(el.dataset.id) location.hash = "#c/"+el.dataset.id;                                  // open the contact
 }
 document.addEventListener("keydown",e=>{
