@@ -397,10 +397,9 @@
 <div class="kb" id="kbHelp"><div class="card">
   <h3>Keyboard shortcuts</h3>
   <table>
-    <tr><td><kbd>a</kbd>…<kbd>z</kbd></td><td>type anywhere to search</td></tr>
+    <tr><td><kbd>a</kbd>…<kbd>z</kbd> <kbd>0</kbd>–<kbd>9</kbd></td><td>type anywhere to search (name, email, phone…)</td></tr>
     <tr><td><kbd>/</kbd></td><td>focus search</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>close / clear search / unfocus</td></tr>
-    <tr><td><kbd>1</kbd>–<kbd>6</kbd></td><td>contacts · companies · outreach · calendar · pipeline · lists</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>move selection</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>open selected</td></tr>
     <tr><td><kbd>Space</kbd></td><td>mark sent (outreach)</td></tr>
@@ -465,8 +464,11 @@ function nextClass(d){ if(!d) return ""; const day=d.slice(0,10); if(day<TODAY) 
 
 function matchesSearch(c){
   if (!search) return true; const q = search.toLowerCase();
-  return [c.name, c.company, c.title, c.notes, ...(c.emails||[]), ...(c.tags||[])]
-    .filter(Boolean).some(v => String(v).toLowerCase().includes(q));
+  if ([c.name, c.company, c.title, c.notes, ...(c.emails||[]), ...(c.phones||[]), ...(c.tags||[])]
+    .filter(Boolean).some(v => String(v).toLowerCase().includes(q))) return true;
+  // Phone numbers match on digits alone, so "3313013" finds "+1 331-301-3476".
+  const qd = q.replace(/\D/g,"");
+  return qd.length >= 3 && (c.phones||[]).some(p => String(p).replace(/\D/g,"").includes(qd));
 }
 function matchesCompanySearch(c){
   if (!search) return true; const q = search.toLowerCase();
@@ -1127,8 +1129,6 @@ document.addEventListener("keydown",e=>{
   if(isTyping()) return;                                   // don't hijack typing in fields
 
   switch(e.key){
-    case "1": case "2": case "3": case "4": case "5": case "6":
-      location.hash = "#"+KB_VIEWS[+e.key-1]; break;
     case "/": e.preventDefault(); $("#search").focus(); $("#search").select(); break;
     case "?": kbHelpToggle(); break;
     case "ArrowDown": e.preventDefault(); kbMove(1); break;
