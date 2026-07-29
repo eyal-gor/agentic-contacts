@@ -467,7 +467,8 @@ function matchesSearch(c){
   if ([c.name, c.company, c.title, c.notes, ...(c.emails||[]), ...(c.phones||[]), ...(c.tags||[])]
     .filter(Boolean).some(v => String(v).toLowerCase().includes(q))) return true;
   // Phone numbers match on digits alone, so "3313013" finds "+1 331-301-3476".
-  const qd = q.replace(/\D/g,"");
+  // Leading zeros are dropped: local "054..." must find E.164 "+97254...".
+  const qd = q.replace(/\D/g,"").replace(/^0+/,"");
   return qd.length >= 3 && (c.phones||[]).some(p => String(p).replace(/\D/g,"").includes(qd));
 }
 function matchesCompanySearch(c){
