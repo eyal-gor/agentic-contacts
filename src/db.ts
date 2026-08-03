@@ -10,7 +10,20 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
-  API_KEY: string;
+  /**
+   * The shared key, from the account-level Secrets Store.
+   *
+   * One secret, bound by every service that needs it, rotated in one place
+   * without redeploying any of them. It used to be a per-Worker secret, which
+   * meant the same value copied into each Worker's own store and into several
+   * .env files — and nothing to keep those copies equal. They drifted, callers
+   * started getting 401s, and because a deployed secret cannot be read back
+   * there was no way to find out which copy was the right one.
+   */
+  API_KEY_STORE?: { get(): Promise<string> };
+  /** The old per-Worker secret. Still read, because Secrets Store bindings
+   *  are not reachable from local dev — there, this comes from .dev.vars. */
+  API_KEY?: string;
 }
 
 /** JSON text column → array. Tolerates NULL and legacy non-array values. */
