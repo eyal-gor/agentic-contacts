@@ -10,10 +10,13 @@ import { verifyMintedKey, stampUsage } from "./keys.js";
  * public internet holding real contacts, so a missing key is a configuration
  * error, not dev mode: refuse to serve rather than serve openly.
  *
- * Set it with: wrangler secret put API_KEY
+ * The key lives in the account-level Secrets Store, bound here and by every
+ * other service that calls this one, so there is a single value to rotate and
+ * no copies to drift apart. Local dev can't reach the store, so .dev.vars
+ * still works as a fallback — in that direction only, never the reverse.
  */
 export const requireApiKey: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
-  const expected = c.env.API_KEY;
+  const expected = c.env.API_KEY_STORE ? await c.env.API_KEY_STORE.get() : c.env.API_KEY;
   if (!expected) {
     return c.json({ error: "server misconfigured: API_KEY is not set" }, 500);
   }

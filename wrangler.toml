@@ -16,6 +16,14 @@ database_name = "agentic-contacts"
 database_id = "b68bb761-3d41-4906-9f33-b8caae7e45f8"
 migrations_dir = "migrations"
 
-# API_KEY is a secret, not a var — set with:
-#   wrangler secret put API_KEY
-# The Worker refuses to serve without it (see worker.ts).
+# The API key, from the account-level Secrets Store rather than this Worker's
+# own secrets. Every service that calls this one binds the same secret, so
+# rotating it is one command in one place and nothing can drift out of step.
+# Rotate with:
+#   wrangler secrets-store secret update 743bff236e564457b2b703e8464bc81f \
+#     --name AGENTIC_CONTACTS_API_KEY --remote
+# Local dev cannot reach the store; put API_KEY in .dev.vars for that.
+[[secrets_store_secrets]]
+binding = "API_KEY_STORE"
+store_id = "743bff236e564457b2b703e8464bc81f"
+secret_name = "AGENTIC_CONTACTS_API_KEY"
