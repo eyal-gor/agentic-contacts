@@ -445,7 +445,6 @@
       <button data-view="today" class="on">Today <span class="navCount" id="navTodayCount"></span></button>
       <button data-view="contacts">Contacts <span class="navCount" id="navContactCount"></span></button>
       <button data-view="companies">Companies <span class="navCount" id="navCompanyCount"></span></button>
-      <button data-view="outreach">Outreach today</button>
       <button data-view="calendar">Calendar</button>
       <button data-view="pipeline">Pipeline</button>
       <button data-view="lists">Lists</button>
@@ -526,16 +525,6 @@
     </section>
 
     <!-- OUTREACH VIEW -->
-    <section id="viewOutreach" class="scroll hide">
-      <div class="toolbar">
-        <span class="cal-title" id="outTitle"></span>
-        <div class="grow"></div>
-        <span id="outProgress" class="muted"></span>
-        <button class="btn ghost" id="outReroll">Suggest 10</button>
-      </div>
-      <div class="out-list" id="outList"></div>
-    </section>
-
     <!-- CALENDAR VIEW -->
     <section id="viewCalendar" class="scroll hide">
       <div class="toolbar">
@@ -611,7 +600,6 @@
     <tr><td><kbd>Esc</kbd></td><td>close / clear search / unfocus</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>move selection</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>open selected</td></tr>
-    <tr><td><kbd>Space</kbd></td><td>mark sent (outreach)</td></tr>
     <tr><td><kbd>⌘↑</kbd> <kbd>⌘↓</kbd></td><td>previous / next view</td></tr>
     <tr><td><kbd>⌘K</kbd></td><td>command palette — verdicts, follow-ups, people, views</td></tr>
     <tr><td><kbd>?</kbd></td><td>this card</td></tr>
@@ -775,7 +763,6 @@ function renderActive(){
   if (view === "pipeline") return renderPipeline();
   if (view === "lists") return renderLists();
   if (view === "calendar") return renderCalendar();
-  if (view === "outreach") return renderOutreach();
   if (view === "companies") return renderCompanies();
   renderContacts();
 }
@@ -785,7 +772,9 @@ function renderActive(){
 // late on, follow-ups due now, and pipeline deals with no next step — the
 // playbook's "no date = dead deal" made visible instead of silent.
 const PIPELINE_STAGES = ["lead","contacted","call","trial","proposal"];
-function todayRow(c, why, cls){
+// fallbackDraft: a suggested first touch has no stored message yet, so the
+// template seeds the box — you edit and send, or an agent overwrites it later.
+function todayRow(c, why, cls, fallbackDraft){
   const el = document.createElement("div"); el.className="crow"; el.dataset.id=c.id;
   const st = stageOf(c);
   el.style.borderLeftColor = st ? `var(--${st})` : "var(--mut)";
@@ -796,15 +785,17 @@ function todayRow(c, why, cls){
     <div class="meta"><span class="pill next ${cls||""}">${esc(why)}</span>
       ${lastDate(c)?` · last ${lastDate(c)}`:" · never talked"}</div>`;
   el.addEventListener("click", ()=>{ location.hash = "#c/"+c.id; });
-  if (!c.draft) return el;
+  const draftText = c.draft || fallbackDraft || "";
+  if (!draftText) return el;
   // The message sits with the person it's for, so the morning is read-copy-send
   // rather than open-card, hunt, copy, come back.
   const box = document.createElement("div"); box.className = "draftBox";
   box.innerHTML = `
-    <textarea class="draftText" spellcheck="false">${esc(c.draft)}</textarea>
+    <textarea class="draftText" spellcheck="false">${esc(draftText)}</textarea>
     <div class="draftActions">
       <button class="btn ghost" data-copy>Copy</button>
       <button class="btn ghost" data-savedraft>Save edit</button>
+      <button class="btn ghost" data-skip>Not today</button>
       <div class="grow"></div>
       <button class="btn" data-sent>Sent ✓</button>
     </div>`;
@@ -815,6 +806,7 @@ function todayRow(c, why, cls){
     e.target.textContent = "Copied ✓"; setTimeout(()=>e.target.textContent="Copy", 1400);
   };
   box.querySelector("[data-savedraft]").onclick = () => saveDraft(c.id, text());
+  box.querySelector("[data-skip]").onclick = () => { outSkipped.add(c.id); renderToday(); };
   box.querySelector("[data-sent]").onclick = () => sendDraft(c.id, text());
   const wrap = document.createElement("div"); wrap.className = "todayItem";
   wrap.appendChild(el); wrap.appendChild(box);
@@ -849,9 +841,19 @@ function renderToday(){
     return todayRow(c, `${days}d overdue${note}`, "over");
   });
   addGroup(`Due today`, q.d, c => todayRow(c, `due today${c.followUpNote?` — ${c.followUpNote}`:""}`, "soon"));
-  addGroup(`In the pipeline, no next step`, q.s, c => todayRow(c, `${stageOf(c)} — set a next step`, ""));
-  if (!box.children.length) box.innerHTML = `<div class="empty">Clear. Nothing due, nothing overdue, every deal has a next step.</div>`;
-  $("#todayStat").textContent = `${q.o.length} overdue · ${q.d.length} due · ${q.s.length} adrift`;
+  // Anyone with a message already written who isn't already above.
+  const shown = new Set([...q.o, ...q.d].map(c => c.id));
+  const ready = CONTACTS.filter(c => c.draft && !shown.has(c.id) && !isDismissed(c) && !sentToday(c))
+    .filter(c => !search || matchesSearch(c));
+  addGroup(`Ready to send — message written`, ready, c => { shown.add(c.id); return todayRow(c, "drafted, not sent", "soon"); });
+  // A few first touches, deliberately few: with follow-ups outstanding, the
+  // constraint is getting through the day, not finding more names.
+  const fresh = outreachSuggestions().filter(c => !shown.has(c.id)).filter(c => !search || matchesSearch(c)).slice(0, 3);
+  addGroup(`New — first touches`, fresh, c => { shown.add(c.id); return todayRow(c, "never contacted", "", draftFor(c)); });
+  addGroup(`In the pipeline, no next step`, q.s.filter(c => !shown.has(c.id)), c => todayRow(c, `${stageOf(c)} — set a next step`, ""));
+  if (!box.children.length) box.innerHTML = `<div class="empty">Clear. Nothing due, nothing drafted, every deal has a next step.</div>`;
+  const sentCount = CONTACTS.filter(sentToday).length;
+  $("#todayStat").textContent = `${q.o.length} overdue · ${q.d.length} due · ${ready.length} drafted · ${sentCount} sent today`;
   $("#stat").textContent = "";
 }
 
@@ -1061,11 +1063,6 @@ window.delCompany = delCompany;
 /* ---------- Outreach today ---------- */
 const sentToday = c => (c.tags||[]).includes("outreach:"+NOW_DATE);
 // Batch number = which outreach day this is, chronologically (1-based).
-function outreachBatchNo(){
-  const dates = new Set([NOW_DATE]);
-  for (const c of CONTACTS) for (const t of (c.tags||[])) if (t.startsWith("outreach:")) dates.add(t.slice(9));
-  return [...dates].sort().indexOf(NOW_DATE) + 1;
-}
 // Suggest people worth contacting today: never contacted, not opted-out, not
 // already sent today, no obvious junk. Actionable (has LinkedIn) + closer
 // circle first.
@@ -1109,58 +1106,6 @@ function draftFor(c){
     default: `Hi ${first}, would genuinely love to hear what you're working on${co?` at ${co}`:""}. ${iBuild}. No agenda - happy to grab a coffee or a call if you're up for it.`,
   };
   return deDash(byAngle[outreachAngle(c)]);
-}
-function renderOutreach(){
-  const no = outreachBatchNo();
-  $("#outTitle").textContent = deDash(`Outreach — Batch #${no} · ${NOW_DATE}`);
-  const sugg = outreachSuggestions();
-  const doneCount = CONTACTS.filter(sentToday).length;
-  $("#outProgress").textContent = `${doneCount} sent today · ${sugg.length} suggested`;
-  const box = $("#outList"); box.innerHTML = "";
-  if (!sugg.length){
-    box.innerHTML = `<div class="empty">Nothing left to suggest today — ${doneCount} already sent. 🎉<br>New contacts, or clear a "Skip", to get more.</div>`;
-  }
-  for (const c of sugg){
-    const circle = circleOf(c);
-    const why = [circle?`circle ${circle}`:null, "never contacted", ...freeTags(c).slice(0,2)].filter(Boolean).join(" · ");
-    const liOpen = c.linkedin ? `<a href="${esc(c.linkedin)}" target="_blank" rel="noopener" class="li">open ↗</a>` : "";
-    const liSearch = `<a href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent((c.name+" "+(c.company||"")).trim())}" target="_blank" rel="noopener" class="li" style="background:rgba(255,255,255,.06);color:var(--muted)">search ⌕</a>`;
-    const el = document.createElement("div"); el.className="out-card"; el.dataset.id=c.id;
-    el.innerHTML = deDash(`
-      <div class="out-head">
-        ${circle?`<span class="pill circle c${circle}">${circle}°</span>`:""}
-        <b>${esc(c.name)}</b>${c.company?`<span class="co"> · ${esc(c.company)}</span>`:""}${c.title?`<span class="co"> — ${esc(c.title)}</span>`:""}
-        <span style="margin-left:8px">${liOpen} ${liSearch}</span>
-      </div>
-      <div class="out-why">${esc(why)}</div>
-      <textarea class="out-msg" spellcheck="false">${esc(draftFor(c))}</textarea>
-      <div class="out-actions">
-        <button class="btn ghost" data-copy>Copy message</button>
-        <button class="btn ghost" data-open>Open contact</button>
-        <div class="grow"></div>
-        <button class="btn ghost" data-skip>Skip</button>
-        <button class="btn" data-sent>Mark sent ✓</button>
-      </div>`);
-    el.querySelector("[data-sent]").onclick = ()=>markSent(c.id, el.querySelector(".out-msg").value);
-    el.querySelector("[data-skip]").onclick = ()=>{ outSkipped.add(c.id); renderOutreach(); };
-    el.querySelector("[data-open]").onclick = ()=>{ location.hash="#c/"+c.id; };
-    el.querySelector("[data-copy]").onclick = (e)=>{ navigator.clipboard?.writeText(deDash(el.querySelector(".out-msg").value)); e.target.textContent="Copied ✓"; setTimeout(()=>e.target.textContent="Copy message",1400); };
-    el.querySelector(".out-msg").addEventListener("input", (e)=>{ const p=e.target.selectionStart; e.target.value = deDash(e.target.value); try{ e.target.setSelectionRange(p,p); }catch(_){} });
-    box.appendChild(el);
-  }
-}
-async function markSent(id, msg){
-  const c = CONTACTS.find(x=>x.id===id); if(!c) return;
-  msg = deDash(msg);
-  const no = outreachBatchNo();
-  const summary = `Outreach batch #${no} (${NOW_DATE})${msg?` — “${msg.slice(0,80)}${msg.length>80?"…":""}”`:""}`;
-  // 1) log the contact
-  await api(`/contacts/${id}/interactions`,{method:"POST",body:JSON.stringify({channel:"message",summary})});
-  // 2) tag with the batch (date), and set a +7d follow-up
-  const tags = (c.tags||[]).filter(t=>t!=="outreach:"+NOW_DATE).concat("outreach:"+NOW_DATE);
-  const fu = new Date(NOW_DATE); fu.setDate(fu.getDate()+7);
-  await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({tags, followUpAt: fu.toISOString().slice(0,10), followUpNote:`Follow up on batch #${no} outreach`})});
-  await load(); renderOutreach(); toast(`Logged & tagged — ${c.name}`);
 }
 
 /* ---------- Calendar view ---------- */
@@ -1696,8 +1641,12 @@ async function sendDraft(id, text){
       channel: "message",
       summary: `Sent: ${msg.slice(0,140)}${msg.length>140?"…":""}`,
     })});
+    // Tagging the day it went out keeps the same person from being suggested
+    // again this morning, and dates the batch for later.
+    const tags = (c.tags||[]).filter(t=>t!=="outreach:"+NOW_DATE).concat("outreach:"+NOW_DATE);
     await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({
-      draft: null, followUpAt: dateIn(7), followUpNote: `Follow up — no reply to the ${TODAY} message`,
+      draft: null, tags, followUpAt: dateIn(7),
+      followUpNote: `Follow up — no reply to the ${TODAY} message`,
     })});
     await load();
     toast(`Sent to ${c.name} · follow-up in 7 days`);
@@ -1796,7 +1745,7 @@ function applyRoute(){
   }
   if ($("#scrim").classList.contains("on")) closeModal();    // any view route closes an open modal
   if (seg === "list" && arg){ listFilter = arg; showView("contacts"); return; }
-  const v = ["today","pipeline","lists","calendar","outreach","contacts","companies","settings"].includes(seg) ? seg : "today";
+  const v = ["today","pipeline","lists","calendar","contacts","companies","settings"].includes(seg) ? seg : "today";
   showView(v);
 }
 // close the modal by navigating back to the current view's URL
@@ -1843,7 +1792,6 @@ function showView(v){
   $("#viewSettings").classList.toggle("hide",v!=="settings");
   $("#viewContacts").classList.toggle("hide",v!=="contacts");
   $("#viewCompanies").classList.toggle("hide",v!=="companies");
-  $("#viewOutreach").classList.toggle("hide",v!=="outreach");
   $("#viewCalendar").classList.toggle("hide",v!=="calendar");
   $("#viewPipeline").classList.toggle("hide",v!=="pipeline");
   $("#viewLists").classList.toggle("hide",v!=="lists");
@@ -1860,7 +1808,6 @@ $("#search").addEventListener("input",e=>{search=e.target.value.trim();renderAct
 $("#tagFilter").addEventListener("change",e=>{tagFilter=e.target.value;renderContacts();});
 $("#sort").addEventListener("change",e=>{sortBy=e.target.value;renderContacts();});
 
-$("#outReroll").addEventListener("click",()=>{ outSkipped.clear(); renderOutreach(); });
 $("#calNav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
   b.dataset.cal==="today"?calToday():calShift(b.dataset.cal==="next"?1:-1);});
 $("#newBtn").addEventListener("click",()=>{ location.hash = "#new"; });
@@ -1910,13 +1857,12 @@ $("#signOutBtn").addEventListener("click",()=>{
 $("#loginPw").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 $("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim") closeTo(); });
 /* ---------- keyboard navigation ---------- */
-const KB_VIEWS = ["today","contacts","companies","outreach","calendar","pipeline","lists"];
+const KB_VIEWS = ["today","contacts","companies","calendar","pipeline","lists"];
 // the highlightable rows/cards in the current list view
 function selEls(){
   if(view==="today")    return [...document.querySelectorAll("#tlist .crow")];
   if(view==="contacts") return [...document.querySelectorAll("#clist .crow")];
   if(view==="companies") return [...document.querySelectorAll("#companyTable .company-row")];
-  if(view==="outreach")  return [...document.querySelectorAll("#outList .out-card")];
   if(view==="lists")     return [...document.querySelectorAll("#llist .crow")];
   return [];
 }
@@ -1928,7 +1874,6 @@ function kbMove(delta){
 }
 function kbActivate(isSpace){
   const els = selEls(); const el = els[selIdx]; if(!el) return;
-  if(view==="outreach" && isSpace){ el.querySelector("[data-sent]")?.click(); return; } // Space = mark sent
   if(view==="lists"){ if(el.dataset.id) location.hash = "#list/"+el.dataset.id; return; } // open the list
   if(view==="companies"){ location.hash = "#co/"+el.dataset.id; return; }               // open the company
   if(el.dataset.id) location.hash = "#c/"+el.dataset.id;                                  // open the contact
