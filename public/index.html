@@ -291,6 +291,37 @@
   .guess span { font-family: var(--mono, "SF Mono", Menlo, monospace); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
   .hist { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
+  /* Identity fields in the card header: they read as text and reveal
+     themselves as editable under the cursor, so the header is the editor. */
+  .idField { border: 0; background: transparent; margin: 0; padding: 2px 6px; border-radius: 6px;
+    width: 100%; color: var(--text); transition: background .12s, box-shadow .12s; }
+  .idField:hover { background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px var(--border); }
+  .idField:focus { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent); outline: none; }
+  html[data-theme="light"] .idField:hover { background: rgba(0,0,0,.045); }
+  .idName { font-size: 19px; font-weight: 600; }
+  .idRow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 1px; }
+  .idRow .sep { color: var(--faint); }
+  .idRow .idField { width: auto; min-width: 90px; font-size: 12.5px; color: var(--muted); }
+  .idRow .idEmail { min-width: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .idLink { font-size: 11.5px; font-weight: 600; color: var(--muted); text-decoration: none;
+    padding: 3px 7px; border-radius: 5px; border: 1px solid var(--border); white-space: nowrap; }
+  .idLink:hover { color: var(--accent); border-color: var(--accent); }
+  /* Timeline — every touch in one column, newest first */
+  .tl { position: relative; padding-left: 20px; margin-top: 4px; }
+  .tl::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 1px; background: var(--border); }
+  .tlItem { position: relative; padding: 7px 0; }
+  .tlItem::before { content: ""; position: absolute; left: -18px; top: 12px; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--mut); box-shadow: 0 0 0 3px var(--elevated); }
+  .tlItem.call::before    { background: #5e6ad2; }
+  .tlItem.email::before   { background: #3fb27f; }
+  .tlItem.meeting::before { background: #d8a92a; }
+  .tlItem.message::before { background: #8b8fa3; }
+  .tlItem.next::before    { background: #e5484d; }
+  .tlItem.added::before   { background: var(--border); }
+  .tlDate { font-size: 11px; color: var(--faint); text-transform: lowercase; }
+  .tlText { font-size: 13px; color: var(--text); line-height: 1.5; }
+  .tlItem.next .tlText { font-weight: 600; }
+  .tlItem.added .tlText { color: var(--muted); }
   /* The next action — the one line on a card that says what to do now, so it
      gets the weight the rest of the card doesn't. */
   .nextAct { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; padding: 10px 12px;
@@ -1245,40 +1276,44 @@ async function openDetail(id){
       ${Object.entries(REL).map(([k,label])=>`<button class="btn ghost ${relNow===k?"on":""}" data-rel="${k}">${label}</button>`).join("")}
       <span class="sub" style="margin:0;color:var(--faint)">r · m · n · d</span>
     </div>` : "";
-  const quickActions = id ? `
+  // Calling is the one action that isn't just a link — it opens the softphone.
+  const quickActions = id && (c.phones||[]).length ? `
     <div class="quick">
-      ${(c.emails&&c.emails[0])?`<a href="mailto:${esc(c.emails[0])}">✉ ${esc(c.emails[0])}</a>`:""}
-      ${c.linkedin?`<a href="${esc(c.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a>`:""}
-      ${compRec?`<a href="#co/${compRec.id}">${esc(compRec.name)} ↗</a>`:""}
       ${(c.phones||[]).map(p=>`<a href="tel:${esc(p)}" onclick="callWith('${esc(p)}');return false;" title="Call with Handset">📞 ${esc(p)}</a>`).join("")}
     </div>` : "";
   // One section per kind of record: activity (messages/meetings + the log
   // form), calls, emails, notes, then the editable details. Same field ids
   // everywhere — saveDetail doesn't care about the order on screen.
   const secH = (t,key) => `<div class="side-label" id="${key||""}" style="padding:16px 0 4px">${t}</div>`;
-  const itRow = i => `<div class="it"><span class="w">${i.occurredAt.slice(0,10)} · ${i.channel}</span><span>${esc(i.summary)}</span></div>`;
-  const calls = hist.filter(i=>i.channel==="call");
-  const emailHist = hist.filter(i=>i.channel==="email");
-  const noteHist = hist.filter(i=>i.channel==="note");
-  const activityHist = hist.filter(i=>!["call","email","note"].includes(i.channel));
   // Guessing an address is occasional work, so it collapses to one line until
   // you ask for it — the card is for reading the person, not for tooling.
-  const emailsRow = `
-    <div class="row">
-      <div><label>Emails (comma-sep)</label><input id="dEmails" value="${esc((c.emails||[]).join(", "))}"></div>
-    </div>
-    ${(!c.emails||!c.emails.length)?`
-      <a class="guessLink" id="guessToggle">Guess an address ▾</a>
-      <div id="guessBody" class="hide" style="margin:6px 0 2px">
-        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-          <span class="muted" style="font-size:13px">@</span>
-          <input id="dDomain" value="${esc(guessDomain(c.company))}" placeholder="company.com" style="max-width:220px;margin:0">
-        </div>
-        <div id="emailGuesses" class="guess-list"></div>
-      </div>`:""}`;
+  // The address lives in the header beside the name; guessing one hangs off it.
+  const guessBlock = id ? `
+    <div id="guessBody" class="hide" style="margin:6px 0 2px">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <span class="muted" style="font-size:13px">@</span>
+        <input id="dDomain" value="${esc(guessDomain(c.company))}" placeholder="company.com" style="max-width:220px;margin:0">
+      </div>
+      <div id="emailGuesses" class="guess-list"></div>
+    </div>` : "";
   const notesRow = `<div class="row"><div><textarea id="dNotes" placeholder="Anything worth remembering about them…">${esc(c.notes)}</textarea></div></div>`;
+  // One timeline instead of a bin per channel: what happened to this person,
+  // newest first, with the pending follow-up sitting at the top as the only
+  // thing that hasn't happened yet.
+  const tlEvents = id ? [
+    ...hist.map(i => ({ date: i.occurredAt, kind: i.channel, text: i.summary })),
+    ...(c.createdAt ? [{ date: c.createdAt, kind: "added",
+        text: "Added to contacts" + (c.addedBy ? ` · ${c.addedBy}` : "") }] : []),
+    ...(c.followUpAt ? [{ date: c.followUpAt, kind: "next",
+        text: (c.followUpNote || "Follow up") + ` — ${fuLabel(c.followUpAt)}` }] : []),
+  ].sort((a,b) => a.date < b.date ? 1 : -1) : [];
+  const tlHtml = tlEvents.map(e => `
+    <div class="tlItem it ${esc(e.kind)}">
+      <div class="tlDate">${esc(e.date.slice(0,10))} · ${esc(e.kind)}</div>
+      <div class="tlText">${esc(e.text)}</div>
+    </div>`).join("");
   const sections = id ? `
-    ${secH("Activity","sec-activity")}
+    ${secH("Timeline","sec-timeline")}
     <div class="hist" style="border-top:0;margin-top:0;padding-top:0">
       <div class="row">
         <div style="flex:0 0 110px"><select class="field" id="logCh">${["call","email","meeting","message","note"].map(x=>`<option>${x}</option>`).join("")}</select></div>
@@ -1296,33 +1331,43 @@ async function openDetail(id){
         <button class="btn ghost" data-fu="30">+1m</button>
         <button class="btn ghost" data-fu="clear">clear</button>
       </div>
-      ${activityHist.length?activityHist.map(itRow).join(""):`<div class="empty">No messages or meetings yet.</div>`}
+      <div class="tl">${tlHtml || `<div class="empty">Nothing logged yet.</div>`}</div>
     </div>
-    ${calls.length?secH(`Calls · ${calls.length}`,"sec-calls")+`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${calls.map(itRow).join("")}</div>`:""}
     ${secH("Notes","sec-notes")}
     ${notesRow}
-    ${noteHist.length?`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${noteHist.map(itRow).join("")}</div>`:""}
-    ${secH(`Emails${emailHist.length?` · ${emailHist.length}`:""}`,"sec-emails")}
-    ${emailHist.length?`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${emailHist.map(itRow).join("")}</div>`:""}
-    ${emailsRow}
     ${secH("Details","sec-details")}` : "";
   const cardNav = id ? `
     <nav class="cardNav" id="cardNav">
       <input id="cardSearch" placeholder="Find in card…" autocomplete="off">
-      <a data-sec="sec-activity">Activity${activityHist.length?`<span class="n">${activityHist.length}</span>`:""}</a>
-      ${calls.length?`<a data-sec="sec-calls">Calls<span class="n">${calls.length}</span></a>`:""}
-      <a data-sec="sec-notes">Notes${noteHist.length?`<span class="n">${noteHist.length}</span>`:""}</a>
-      <a data-sec="sec-emails">Emails${emailHist.length?`<span class="n">${emailHist.length}</span>`:""}</a>
+      <a data-sec="sec-timeline">Timeline${tlEvents.length?`<span class="n">${tlEvents.length}</span>`:""}</a>
+      <a data-sec="sec-notes">Notes</a>
       <a data-sec="sec-details">Details</a>
     </nav>` : "";
   $("#modal").innerHTML = `
     <span class="x" onclick="closeTo()">×</span>
-    <div style="display:flex;gap:14px;align-items:center;margin-bottom:8px">
-      ${id?`<span id="avatarBtn" title="${c.image?"Change photo":"Add a photo"}" style="cursor:pointer">${avatarHtml(c,56)}</span>
+    <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:8px">
+      ${id?`<span id="avatarBtn" title="${c.image?"Change photo":"Add a photo"}" style="cursor:pointer;flex:0 0 auto">${avatarHtml(c,56)}</span>
       <input type="file" id="avatarFile" accept="image/*" style="display:none">`:""}
-      <div style="min-width:0">
-        <h3 style="margin:0">${id?esc(c.name):"New contact"}</h3>
-        <div class="sub" style="margin:0">${id?[c.title,c.company].filter(Boolean).map(esc).join(" · ")||"Log interactions, set follow-up, edit details":"Add someone to your contacts"}${id&&c.image?` · <a id="avatarRemove" style="cursor:pointer;color:var(--faint)">remove photo</a>`:""}</div>
+      <div style="min-width:0;flex:1">
+        ${id?`
+        <!-- Identity edits itself: these are the fields, not a copy of them. -->
+        <input id="dName" class="idField idName" value="${esc(c.name)}" placeholder="Name">
+        <div class="idRow">
+          <input id="dTitle" class="idField" value="${esc(c.title)}" placeholder="Title">
+          <span class="sep">·</span>
+          <input id="dCompany" class="idField" value="${esc(c.company)}" placeholder="Company">
+        </div>
+        <div class="idRow">
+          <input id="dEmails" class="idField idEmail" value="${esc((c.emails||[]).join(", "))}" placeholder="email@company.com">
+          <a class="guessLink" id="guessToggle">guess ▾</a>
+          ${c.linkedin?`<a class="idLink" href="${esc(c.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a>`
+                      :`<a class="idLink" href="${liSearch}" target="_blank" rel="noopener">find on LinkedIn ⌕</a>`}
+          ${compRec?`<a class="idLink" href="#co/${compRec.id}">${esc(compRec.name)} ↗</a>`:""}
+          ${c.image?`<a class="idLink" id="avatarRemove" style="cursor:pointer">remove photo</a>`:""}
+        </div>
+        ${guessBlock}`
+        :`<h3 style="margin:0">New contact</h3>
+          <div class="sub" style="margin:0">Add someone to your contacts</div>`}
       </div>
     </div>
     ${id?`<div class="brief">${[
@@ -1340,20 +1385,19 @@ async function openDetail(id){
     </div>`:""}
     ${id?`<div class="cardCols">${cardNav}<div class="cardBody">`:""}
     ${sections}
-    <div class="row">
+    ${id?"":`<div class="row">
       <div><label>Name</label><input id="dName" value="${esc(c.name)}"></div>
       <div><label>Company</label><input id="dCompany" value="${esc(c.company)}"></div>
     </div>
     <div class="row">
       <div><label>Title</label><input id="dTitle" value="${esc(c.title)}"></div>
+      <div><label>Emails (comma-sep)</label><input id="dEmails" value="${esc((c.emails||[]).join(", "))}"></div>
+    </div>`}
+    <div class="row">
       <div><label>LinkedIn${c.linkedin?` · <a href="${esc(c.linkedin)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">open ↗</a>`:""} · <a href="${liSearch}" target="_blank" rel="noopener" style="color:var(--muted);font-weight:600">search ⌕</a></label><input id="dLinkedin" value="${esc(c.linkedin)}"></div>
     </div>
-    ${id?`<div class="row"><div><label>Phones (comma-sep)</label><input id="dPhones" value="${esc((c.phones||[]).join(", "))}"></div></div>`
-       :`<div class="row">
-      <div><label>Emails (comma-sep)</label><input id="dEmails" value="${esc((c.emails||[]).join(", "))}"></div>
-      <div><label>Phones (comma-sep)</label><input id="dPhones" value="${esc((c.phones||[]).join(", "))}"></div>
-    </div>
-    <div class="row"><div>
+    <div class="row"><div><label>Phones (comma-sep)</label><input id="dPhones" value="${esc((c.phones||[]).join(", "))}"></div></div>
+    ${id?"":`<div class="row"><div>
       <label>Guess email <span style="color:var(--faint);font-weight:400">— pick one to fill the field</span></label>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:7px">
         <span class="muted" style="font-size:13px">@</span>
@@ -1395,6 +1439,27 @@ async function openDetail(id){
         r.style.display = !q || r.textContent.toLowerCase().includes(q) ? "" : "none";
       });
     });
+    // Header identity saves itself, like the next action — no Save round trip
+    // for correcting a job title.
+    for (const [el, field] of [["dName","name"],["dTitle","title"],["dCompany","company"],["dEmails","emails"]]){
+      const node = $("#"+el); if (!node) continue;
+      const commit = async () => {
+        const rec = CONTACTS.find(x=>x.id===id) || {};
+        const val = node.value.trim();
+        const isList = field === "emails";
+        const cur = isList ? (rec.emails||[]).join(", ") : (rec[field] || "");
+        if (val === cur) return;
+        if (field === "name" && !val){ node.value = cur; return toast("Name is required"); }
+        const payload = isList ? { emails: val.split(",").map(s=>s.trim()).filter(Boolean) } : { [field]: val };
+        try {
+          await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify(payload)});
+          Object.assign(rec, payload);
+          renderActive(); toast("Saved");
+        } catch(e){ toast("Error: "+e.message); }
+      };
+      node.addEventListener("blur", commit);
+      node.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); node.blur(); } });
+    }
     document.querySelectorAll("#modal .relBar [data-rel]").forEach(b => {
       b.onclick = () => setRelevance(id, relOf(CONTACTS.find(x=>x.id===id)||{}) === b.dataset.rel ? "" : b.dataset.rel);
     });
@@ -1429,7 +1494,7 @@ async function openDetail(id){
   if ($("#emailGuesses")){ renderEmailGuesses(); $("#dDomain").addEventListener("input", renderEmailGuesses); $("#dName").addEventListener("input", renderEmailGuesses); }
   if ($("#guessToggle")) $("#guessToggle").onclick = () => {
     const body = $("#guessBody"), open = body.classList.toggle("hide");
-    $("#guessToggle").textContent = open ? "Guess an address ▾" : "Guess an address ▴";
+    $("#guessToggle").textContent = open ? "guess ▾" : "guess ▴";
     if (!open) renderEmailGuesses();
   };
   $("#scrim").classList.add("on");
