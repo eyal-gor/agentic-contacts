@@ -279,7 +279,12 @@
   input:not([type=checkbox]):not([type=radio]):focus, textarea:focus, select.field:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94,106,210,.18); }
   textarea { min-height: 50px; resize: vertical; }
   #dLists .toggle { white-space: nowrap; font-size: 12.5px; }
-  .guess-list { display: flex; flex-direction: column; gap: 3px; }
+  /* Guessed addresses read as chips on one or two lines, not a stacked list */
+  .guess-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .guessChip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+    padding: 4px 9px; }
+  .guessLink { font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; }
+  .guessLink:hover { color: var(--accent); }
   .guess { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer;
     padding: 4px 8px; border-radius: 6px; border: 1px solid transparent; }
   .guess:hover { background: var(--bg); border-color: var(--border); }
@@ -1241,18 +1246,21 @@ async function openDetail(id){
   const emailHist = hist.filter(i=>i.channel==="email");
   const noteHist = hist.filter(i=>i.channel==="note");
   const activityHist = hist.filter(i=>!["call","email","note"].includes(i.channel));
+  // Guessing an address is occasional work, so it collapses to one line until
+  // you ask for it — the card is for reading the person, not for tooling.
   const emailsRow = `
     <div class="row">
       <div><label>Emails (comma-sep)</label><input id="dEmails" value="${esc((c.emails||[]).join(", "))}"></div>
     </div>
-    ${(!c.emails||!c.emails.length)?`<div class="row"><div>
-      <label>Guess email <span style="color:var(--faint);font-weight:400">— pick one to fill the field</span></label>
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:7px">
-        <span class="muted" style="font-size:13px">@</span>
-        <input id="dDomain" value="${esc(guessDomain(c.company))}" placeholder="company.com" style="max-width:240px">
-      </div>
-      <div id="emailGuesses" class="guess-list"></div>
-    </div></div>`:""}`;
+    ${(!c.emails||!c.emails.length)?`
+      <a class="guessLink" id="guessToggle">Guess an address ▾</a>
+      <div id="guessBody" class="hide" style="margin:6px 0 2px">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+          <span class="muted" style="font-size:13px">@</span>
+          <input id="dDomain" value="${esc(guessDomain(c.company))}" placeholder="company.com" style="max-width:220px;margin:0">
+        </div>
+        <div id="emailGuesses" class="guess-list"></div>
+      </div>`:""}`;
   const notesRow = `<div class="row"><div><textarea id="dNotes" placeholder="Anything worth remembering about them…">${esc(c.notes)}</textarea></div></div>`;
   const sections = id ? `
     ${secH("Activity","sec-activity")}
@@ -1277,20 +1285,20 @@ async function openDetail(id){
       ${activityHist.length?activityHist.map(itRow).join(""):`<div class="empty">No messages or meetings yet.</div>`}
     </div>
     ${calls.length?secH(`Calls · ${calls.length}`,"sec-calls")+`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${calls.map(itRow).join("")}</div>`:""}
-    ${secH(`Emails${emailHist.length?` · ${emailHist.length}`:""}`,"sec-emails")}
-    ${emailHist.length?`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${emailHist.map(itRow).join("")}</div>`:""}
-    ${emailsRow}
     ${secH("Notes","sec-notes")}
     ${notesRow}
     ${noteHist.length?`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${noteHist.map(itRow).join("")}</div>`:""}
+    ${secH(`Emails${emailHist.length?` · ${emailHist.length}`:""}`,"sec-emails")}
+    ${emailHist.length?`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${emailHist.map(itRow).join("")}</div>`:""}
+    ${emailsRow}
     ${secH("Details","sec-details")}` : "";
   const cardNav = id ? `
     <nav class="cardNav" id="cardNav">
       <input id="cardSearch" placeholder="Find in card…" autocomplete="off">
       <a data-sec="sec-activity">Activity${activityHist.length?`<span class="n">${activityHist.length}</span>`:""}</a>
       ${calls.length?`<a data-sec="sec-calls">Calls<span class="n">${calls.length}</span></a>`:""}
-      <a data-sec="sec-emails">Emails${emailHist.length?`<span class="n">${emailHist.length}</span>`:""}</a>
       <a data-sec="sec-notes">Notes${noteHist.length?`<span class="n">${noteHist.length}</span>`:""}</a>
+      <a data-sec="sec-emails">Emails${emailHist.length?`<span class="n">${emailHist.length}</span>`:""}</a>
       <a data-sec="sec-details">Details</a>
     </nav>` : "";
   $("#modal").innerHTML = `
@@ -1391,6 +1399,11 @@ async function openDetail(id){
     };
   }
   if ($("#emailGuesses")){ renderEmailGuesses(); $("#dDomain").addEventListener("input", renderEmailGuesses); $("#dName").addEventListener("input", renderEmailGuesses); }
+  if ($("#guessToggle")) $("#guessToggle").onclick = () => {
+    const body = $("#guessBody"), open = body.classList.toggle("hide");
+    $("#guessToggle").textContent = open ? "Guess an address ▾" : "Guess an address ▴";
+    if (!open) renderEmailGuesses();
+  };
   $("#scrim").classList.add("on");
 }
 function closeModal(){ $("#scrim").classList.remove("on"); detailId=null; }
@@ -1437,8 +1450,8 @@ function renderEmailGuesses(){
   const locals = last ? [`${first}.${last}`, `${first}${last}`, `${first[0]}${last}`, first] : [first];
   const seen = new Set();
   box.innerHTML = locals.filter(l=>{ if(!l||seen.has(l)) return false; seen.add(l); return true; })
-    .map(l=>`<label class="guess"><input type="radio" name="emailGuess" value="${esc(l+"@"+dom)}"> <span>${esc(l+"@"+dom)}</span></label>`).join("");
-  box.querySelectorAll("input[name=emailGuess]").forEach(r=>r.onchange=()=>{ $("#dEmails").value = r.value; toast("Email set — Save to keep"); });
+    .map(l=>`<button type="button" class="btn ghost guessChip" data-email="${esc(l+"@"+dom)}">${esc(l+"@"+dom)}</button>`).join("");
+  box.querySelectorAll("[data-email]").forEach(b=>b.onclick=()=>{ $("#dEmails").value = b.dataset.email; toast("Email set — Save to keep"); });
 }
 
 async function saveDetail(){
