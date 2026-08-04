@@ -1,9 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Dark tile matching the app's Linear-style chrome -->
+  <!-- Dark tile matching the app's chrome -->
   <rect width="64" height="64" rx="14" fill="#16171b"/>
-  <!-- Contact: head + shoulders -->
-  <circle cx="30" cy="25" r="10" fill="#e8eaee"/>
-  <path d="M12 54c0-11 8.5-17 18-17s18 6 18 17" fill="none" stroke="#e8eaee" stroke-width="9" stroke-linecap="round"/>
-  <!-- Agent: indigo satellite -->
-  <circle cx="49" cy="16" r="8" fill="#5e6ad2"/>
+  <!-- Two figures, each a small head over a larger body. Four circles is all
+       that survives at 16px; anything with a stroke turns to mush. -->
+  <g fill="#e8eaee">
+    <circle cx="21" cy="21" r="7"/>
+    <circle cx="21" cy="40" r="10"/>
+  </g>
+  <!-- The second figure is the agent, in the app's indigo -->
+  <g fill="#5e6ad2">
+    <circle cx="43" cy="21" r="7"/>
+    <circle cx="43" cy="40" r="10"/>
+  </g>
 </svg>
