@@ -72,6 +72,17 @@
   .draftActions .btn { padding: 4px 10px; font-size: 11.5px; }
   .pill.draftPill { background: rgba(94,106,210,.18); color: #a6adf0; }
   html[data-theme="light"] .pill.draftPill { background: rgba(94,106,210,.14); color: #4650b0; }
+  /* The offer, shown above the people it goes to */
+  .offerCard { margin: 10px 18px 4px; border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 8px; background: var(--surface); padding: 12px 14px; }
+  .offerCard .oh { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .offerCard .ot { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .offerCard .ostate { font-size: 12px; color: var(--faint); }
+  .modal-free .offerCard textarea, .offerCard textarea { width: 100%; min-height: 92px; margin: 0;
+    font-size: 13px; line-height: 1.6; resize: vertical; }
+  .offerCard .orow { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .offerCard input[type=number] { width: 70px; margin: 0; }
+  .offerCard .ohint { font-size: 11.5px; color: var(--faint); }
   /* Today block headers: a name, a count, and what the block is for */
   .today-block { display: flex; align-items: baseline; gap: 9px; margin: 22px 2px 6px;
     padding-bottom: 6px; border-bottom: 1px solid var(--border); }
@@ -509,6 +520,8 @@
         <span class="pill icp">In list: <b id="listBannerName" style="margin-left:4px"></b></span>
         <span class="toggle" id="clearListFilter" style="cursor:pointer">✕ clear</span>
       </div>
+      <!-- The offer belongs with the people it goes to, editable where you read it. -->
+      <div id="listOffer"></div>
       <div class="toolbar">
         <select class="flat" id="tagFilter"><option value="">All tags</option></select>
         <select class="flat" id="sort">
@@ -964,6 +977,53 @@ async function revokeApiKey(id){
   toast("Revoked"); renderSettings();
 }
 
+/* ---------- the offer, at the head of its list ---------- */
+// Rebuilt only when the list changes: renderContacts runs on every keystroke
+// in the search box, and rebuilding would yank the cursor out of the offer.
+let offerCardFor = null;
+function renderOfferCard(l){
+  if (!l){ $("#listOffer").innerHTML = ""; offerCardFor = null; return; }
+  if (offerCardFor === l.id) return;
+  offerCardFor = l.id;
+  const sample = CONTACTS.find(c => listIdsOf(c).includes(l.id) && !lastDate(c))
+              || CONTACTS.find(c => listIdsOf(c).includes(l.id));
+  $("#listOffer").innerHTML = `
+    <div class="offerCard">
+      <div class="oh">
+        <span class="ot">Offer</span>
+        <span class="ostate" id="offerState">${l.perDay ? `running · ${l.perDay} a day` : "parked — set a number to start it"}</span>
+      </div>
+      <textarea id="offerText" placeholder="What are you putting in front of these people? {first}, {company} and {title} get filled in.">${esc(l.offer||"")}</textarea>
+      <div class="orow">
+        <span class="ohint">Per day</span>
+        <input type="number" id="offerPerDay" min="0" max="50" value="${l.perDay||0}">
+        <span class="ohint" id="offerPreviewLabel">${sample?`Preview for ${esc(sample.name)}:`:""}</span>
+        <span class="ohint" id="offerPreview" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+      </div>
+    </div>`;
+  const preview = () => {
+    if (!sample) return;
+    $("#offerPreview").textContent = fillOffer($("#offerText").value, sample).split("\n")[0] || "";
+  };
+  const save = async () => {
+    const offer = $("#offerText").value.trim();
+    const perDay = Math.max(0, Math.min(50, parseInt($("#offerPerDay").value,10) || 0));
+    if (offer === (l.offer||"") && perDay === (l.perDay||0)) return;
+    if (perDay > 0 && !offer){ toast("A running offer needs a message"); return; }
+    try {
+      await api(`/lists/${l.id}`,{method:"PATCH",body:JSON.stringify({ offer: offer || null, perDay })});
+      l.offer = offer || null; l.perDay = perDay;
+      $("#offerState").textContent = perDay ? `running · ${perDay} a day` : "parked — set a number to start it";
+      $("#listBannerName").textContent = l.name + (perDay ? ` · offer running, ${perDay}/day` : "");
+      toast("Offer saved");
+    } catch(e){ toast("Error: "+e.message); }
+  };
+  $("#offerText").addEventListener("input", preview);
+  $("#offerText").addEventListener("blur", save);
+  $("#offerPerDay").addEventListener("change", save);
+  preview();
+}
+
 /* ---------- Contacts view ---------- */
 function renderContacts(){
   const banner = $("#listBanner");
@@ -971,7 +1031,8 @@ function renderContacts(){
     banner.style.display="";
     const l = LISTS.find(x => x.id === listFilter);
     $("#listBannerName").textContent = listName(listFilter) + (l && l.perDay ? ` · offer running, ${l.perDay}/day` : "");
-  }
+    renderOfferCard(l);
+  } else { $("#listOffer").innerHTML = ""; offerCardFor = null; }
   else banner.style.display="none";
   let cs = CONTACTS.filter(matchesSearch);
   if (listFilter) cs = cs.filter(c => listIdsOf(c).includes(listFilter));
