@@ -1200,17 +1200,22 @@ function renderLists(){
   for (const l of [...LISTS].sort((a,b)=>a.name.localeCompare(b.name))){
     const el = document.createElement("div"); el.className="crow"; el.style.borderLeftColor="var(--accent)";
     el.style.gridTemplateColumns = "1.4fr 1fr auto";
+    el.dataset.id = l.id;
     el.innerHTML = `
       <div><span class="nm">${esc(l.name)}</span><div class="co">${esc(l.id)}</div></div>
       <div class="meta">${l.memberCount} member${l.memberCount===1?"":"s"}</div>
       <div class="tags" style="justify-content:flex-end;gap:6px">
-        <button class="btn" data-open="${l.id}">Open</button>
         <button class="btn ghost" data-rename="${l.id}">Rename</button>
         <button class="btn danger" data-del="${l.id}">Delete</button>
       </div>`;
+    // The row is the target — a list row that only opens from one small button
+    // makes you aim at the button.
+    el.addEventListener("click", e => {
+      if (e.target.closest("button")) return;   // rename/delete keep their own jobs
+      location.hash = "#list/" + l.id;
+    });
     box.appendChild(el);
   }
-  box.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ location.hash="#list/"+b.dataset.open; });
   box.querySelectorAll("[data-rename]").forEach(b=>b.onclick=()=>renameList(b.dataset.rename));
   box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delList(b.dataset.del));
   $("#lstat").textContent = `${LISTS.length} list${LISTS.length===1?"":"s"}`;
@@ -1866,7 +1871,7 @@ function kbMove(delta){
 function kbActivate(isSpace){
   const els = selEls(); const el = els[selIdx]; if(!el) return;
   if(view==="outreach" && isSpace){ el.querySelector("[data-sent]")?.click(); return; } // Space = mark sent
-  if(view==="lists"){ el.querySelector("[data-open]")?.click(); return; }               // open the list
+  if(view==="lists"){ if(el.dataset.id) location.hash = "#list/"+el.dataset.id; return; } // open the list
   if(view==="companies"){ location.hash = "#co/"+el.dataset.id; return; }               // open the company
   if(el.dataset.id) location.hash = "#c/"+el.dataset.id;                                  // open the contact
 }
