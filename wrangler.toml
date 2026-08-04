@@ -2,6 +2,19 @@ name = "agentic-contacts"
 main = "src/worker.ts"
 compatibility_date = "2026-07-01"
 
+# Declaring any route turns the workers.dev hostname off by default, and
+# several things still point at it: the CLI and the /contacts skill, MCP
+# clients, and the phone app's fallback URL. Stated explicitly so a default
+# can't quietly cut them off — same reasoning as the phone app's config.
+# (Must stay above [[routes]] — TOML would otherwise read it as a route key.)
+workers_dev = true
+
+# The address people type. Cloudflare owns the DNS for autobirds.com, so
+# `custom_domain` creates the record and the certificate on deploy.
+[[routes]]
+pattern = "contacts.autobirds.com"
+custom_domain = true
+
 # The single-page UI. Served at / by the Worker runtime; the API routes below
 # still win because run_worker_first sends every request to the Worker first.
 [assets]
