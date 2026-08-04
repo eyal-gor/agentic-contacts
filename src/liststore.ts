@@ -16,6 +16,8 @@ function rowToList(row: Record<string, unknown>): ContactList {
   return {
     id: String(row.id),
     name: String(row.name),
+    angle: (row.angle as string) ?? null,
+    perDay: Number(row.perDay ?? 0),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };
@@ -39,7 +41,7 @@ export async function create(db: D1Database, name: string): Promise<ContactList>
   while (await get(db, id)) id = `${base}-${n++}`;
 
   const now = new Date().toISOString();
-  const list: ContactList = { id, name, createdAt: now, updatedAt: now };
+  const list: ContactList = { id, name, angle: null, perDay: 0, createdAt: now, updatedAt: now };
   await db
     .prepare("INSERT INTO lists (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)")
     .bind(list.id, list.name, list.createdAt, list.updatedAt)
@@ -47,12 +49,25 @@ export async function create(db: D1Database, name: string): Promise<ContactList>
   return list;
 }
 
-export async function rename(db: D1Database, id: string, name: string): Promise<ContactList | null> {
+/** Patch name, angle and/or the daily quota. Only the fields named change. */
+export async function update(
+  db: D1Database,
+  id: string,
+  patch: { name?: string; angle?: string | null; perDay?: number },
+): Promise<ContactList | null> {
   const existing = await get(db, id);
   if (!existing) return null;
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  if (patch.name !== undefined) { sets.push("name = ?"); binds.push(patch.name); }
+  if (patch.angle !== undefined) { sets.push("angle = ?"); binds.push(patch.angle); }
+  if (patch.perDay !== undefined) { sets.push("perDay = ?"); binds.push(patch.perDay); }
   const updatedAt = new Date().toISOString();
-  await db.prepare("UPDATE lists SET name = ?, updatedAt = ? WHERE id = ?").bind(name, updatedAt, id).run();
-  return { ...existing, name, updatedAt };
+  if (sets.length) {
+    await db.prepare(`UPDATE lists SET ${sets.join(", ")}, updatedAt = ? WHERE id = ?`)
+      .bind(...binds, updatedAt, id).run();
+  }
+  return get(db, id);
 }
 
 export async function remove(db: D1Database, id: string): Promise<boolean> {

@@ -81,12 +81,20 @@ export type InteractionInputT = z.infer<typeof InteractionInput>;
 // list's identity lives here; membership is stored on each contact as a
 // namespaced `list:<id>` tag — the same coexist-without-a-schema-change
 // trick used for stage:/icp:, so the existing tag filter finds members.
-export const ListInput = z.object({ name: z.string().min(1, "name is required") });
+export const ListInput = z.object({
+  name: z.string().min(1, "name is required"),
+  // What you're saying to these people, and how many a day. A list with
+  // perDay > 0 is a campaign: the daily queue draws first touches from it.
+  angle: z.string().nullable().optional(),
+  perDay: z.number().int().min(0).max(50).optional(),
+});
 export type ListInputT = z.infer<typeof ListInput>;
 
 export interface ContactList {
   id: string;
   name: string;
+  angle?: string | null;
+  perDay: number;
   createdAt: string;
   updatedAt: string;
 }

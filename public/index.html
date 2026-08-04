@@ -72,6 +72,14 @@
   .draftActions .btn { padding: 4px 10px; font-size: 11.5px; }
   .pill.draftPill { background: rgba(94,106,210,.18); color: #a6adf0; }
   html[data-theme="light"] .pill.draftPill { background: rgba(94,106,210,.14); color: #4650b0; }
+  /* Today block headers: a name, a count, and what the block is for */
+  .today-block { display: flex; align-items: baseline; gap: 9px; margin: 22px 2px 6px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .today-block:first-child { margin-top: 6px; }
+  .today-block .bt { font-size: 14px; font-weight: 600; color: var(--text); }
+  .today-block .bn { font-size: 11px; font-weight: 600; color: var(--muted);
+    background: var(--surface); border-radius: 20px; padding: 1px 8px; }
+  .today-block .bs { font-size: 12px; color: var(--faint); }
   /* Today view: group headers and the reason a row is in the queue */
   .today-h { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); margin: 16px 2px 6px; }
   .today-h:first-child { margin-top: 4px; }
@@ -824,36 +832,72 @@ function todayGroups(){
     .sort((a,b)=> (lastDate(a)||"0") < (lastDate(b)||"0") ? -1 : 1);
   return { today, overdue, due, drifting };
 }
+// Who a campaign should surface today: its members, never contacted, not
+// dismissed, not already written to this morning — capped at its daily number.
+function campaignPicks(){
+  const out = [];
+  for (const l of LISTS.filter(l => (l.perDay||0) > 0)){
+    const members = CONTACTS.filter(c =>
+      listIdsOf(c).includes(l.id) && !c.lastInteraction && !isDismissed(c) &&
+      !sentToday(c) && !outSkipped.has(c.id) && !(c.tags||[]).includes("do-not-contact"));
+    for (const c of members.slice(0, l.perDay)) out.push({ c, list: l });
+  }
+  return out;
+}
 function renderToday(){
   const { today, overdue, due, drifting } = todayGroups();
   const q = search ? { o: overdue.filter(matchesSearch), d: due.filter(matchesSearch), s: drifting.filter(matchesSearch) }
                    : { o: overdue, d: due, s: drifting };
   $("#todayTitle").textContent = new Date().toLocaleDateString("en-US",{weekday:"long", month:"long", day:"numeric"});
   const box = $("#tlist"); box.innerHTML = "";
-  const addGroup = (label, rows, mk) => {
+  // Three blocks, one question each: who am I replying to, who am I starting
+  // with, what's rotting. A draft isn't a block — it rides on whichever row
+  // the person is already in.
+  const block = (title, sub, rows) => {
     if (!rows.length) return;
-    const h = document.createElement("div"); h.className = "today-h"; h.textContent = label;
-    box.appendChild(h); rows.forEach(c => box.appendChild(mk(c)));
+    const h = document.createElement("div"); h.className = "today-block";
+    h.innerHTML = `<span class="bt">${esc(title)}</span><span class="bn">${rows.length}</span><span class="bs">${esc(sub)}</span>`;
+    box.appendChild(h);
+    rows.forEach(r => box.appendChild(r));
   };
-  addGroup(`Overdue — you owe them a touch`, q.o, c => {
-    const days = Math.floor((new Date(today) - new Date(c.followUpAt.slice(0,10)))/864e5);
+  const seen = new Set();
+  const take = c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; };
+
+  // 1 — people already in motion, latest first: the highest-value work there is.
+  const owed = [...q.o, ...q.d].filter(take).map(c => {
+    const day = (c.followUpAt||"").slice(0,10);
+    const days = Math.floor((new Date(today) - new Date(day))/864e5);
     const note = c.followUpNote ? ` — ${c.followUpNote}` : "";
-    return todayRow(c, `${days}d overdue${note}`, "over");
+    return days > 0 ? todayRow(c, `${days}d late${note}`, "over")
+                    : todayRow(c, `due today${note}`, "soon");
   });
-  addGroup(`Due today`, q.d, c => todayRow(c, `due today${c.followUpNote?` — ${c.followUpNote}`:""}`, "soon"));
-  // Anyone with a message already written who isn't already above.
-  const shown = new Set([...q.o, ...q.d].map(c => c.id));
-  const ready = CONTACTS.filter(c => c.draft && !shown.has(c.id) && !isDismissed(c) && !sentToday(c))
-    .filter(c => !search || matchesSearch(c));
-  addGroup(`Ready to send — message written`, ready, c => { shown.add(c.id); return todayRow(c, "drafted, not sent", "soon"); });
-  // A few first touches, deliberately few: with follow-ups outstanding, the
-  // constraint is getting through the day, not finding more names.
-  const fresh = outreachSuggestions().filter(c => !shown.has(c.id)).filter(c => !search || matchesSearch(c)).slice(0, 3);
-  addGroup(`New — first touches`, fresh, c => { shown.add(c.id); return todayRow(c, "never contacted", "", draftFor(c)); });
-  addGroup(`In the pipeline, no next step`, q.s.filter(c => !shown.has(c.id)), c => todayRow(c, `${stageOf(c)} — set a next step`, ""));
-  if (!box.children.length) box.innerHTML = `<div class="empty">Clear. Nothing due, nothing drafted, every deal has a next step.</div>`;
+  block("Follow up", "they're waiting on you", owed);
+
+  // 2 — new conversations, drawn from campaigns so the pick has a reason.
+  const picks = campaignPicks().filter(p => !search || matchesSearch(p.c));
+  const started = picks.filter(p => take(p.c))
+    .map(p => todayRow(p.c, `${p.list.name}`, "", p.c.draft || draftFor(p.c)));
+  // No campaign running? Fall back to a couple of never-contacted people so
+  // the block isn't silently empty — but say plainly that nothing's steering it.
+  const fallback = picks.length ? [] :
+    outreachSuggestions().filter(c => (!search || matchesSearch(c)) && take(c)).slice(0, 2)
+      .map(c => todayRow(c, "no campaign — suggested", "", c.draft || draftFor(c)));
+  block("Start", picks.length ? "first touches from your campaigns" : "no campaign running — set one up in Lists",
+        [...started, ...fallback]);
+
+  // 3 — drafts written for people who fit neither block above.
+  const stray = CONTACTS.filter(c => c.draft && !isDismissed(c) && !sentToday(c))
+    .filter(c => (!search || matchesSearch(c)) && take(c))
+    .map(c => todayRow(c, "written, not sent", "soon"));
+  block("Ready", "messages waiting to go out", stray);
+
+  // 4 — housekeeping, last because it isn't a conversation.
+  const adrift = q.s.filter(take).map(c => todayRow(c, `${stageOf(c)} — no next step`, ""));
+  block("Fix", "deals with nothing scheduled", adrift);
+
+  if (!box.children.length) box.innerHTML = `<div class="empty">Clear. Nobody waiting, nothing drafted, every deal has a next step.</div>`;
   const sentCount = CONTACTS.filter(sentToday).length;
-  $("#todayStat").textContent = `${q.o.length} overdue · ${q.d.length} due · ${ready.length} drafted · ${sentCount} sent today`;
+  $("#todayStat").textContent = `${owed.length} to follow up · ${started.length + fallback.length} to start · ${sentCount} sent today`;
   $("#stat").textContent = "";
 }
 
@@ -1179,9 +1223,11 @@ function renderLists(){
     el.style.gridTemplateColumns = "1.4fr 1fr auto";
     el.dataset.id = l.id;
     el.innerHTML = `
-      <div><span class="nm">${esc(l.name)}</span><div class="co">${esc(l.id)}</div></div>
+      <div><span class="nm">${esc(l.name)}</span>
+        <div class="co">${l.perDay ? `campaign · ${l.perDay}/day` : "collection"}${l.angle?` · ${esc(l.angle)}`:""}</div></div>
       <div class="meta">${l.memberCount} member${l.memberCount===1?"":"s"}</div>
       <div class="tags" style="justify-content:flex-end;gap:6px">
+        <button class="btn ghost" data-campaign="${l.id}">${l.perDay?"Campaign ✓":"Make campaign"}</button>
         <button class="btn ghost" data-rename="${l.id}">Rename</button>
         <button class="btn danger" data-del="${l.id}">Delete</button>
       </div>`;
@@ -1193,6 +1239,7 @@ function renderLists(){
     });
     box.appendChild(el);
   }
+  box.querySelectorAll("[data-campaign]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); editCampaign(b.dataset.campaign); });
   box.querySelectorAll("[data-rename]").forEach(b=>b.onclick=()=>renameList(b.dataset.rename));
   box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delList(b.dataset.del));
   $("#lstat").textContent = `${LISTS.length} list${LISTS.length===1?"":"s"}`;
@@ -1201,6 +1248,21 @@ function renderLists(){
 async function newList(){
   const name = prompt("New list name:"); if(!name) return;
   await api("/lists",{method:"POST",body:JSON.stringify({name})}); await load(); toast("List created");
+}
+// A campaign is a list plus the two facts the morning needs: what you're
+// saying to these people, and how many of them a day.
+async function editCampaign(id){
+  const l = LISTS.find(x=>x.id===id); if(!l) return;
+  const angle = prompt(`What are you saying to "${l.name}"?\n(one line — the pitch or the reason you're reaching out)`, l.angle || "");
+  if (angle === null) return;
+  const perDayRaw = prompt("How many of them per day?\n(0 turns it back into a plain collection)", String(l.perDay || 2));
+  if (perDayRaw === null) return;
+  const perDay = Math.max(0, Math.min(50, parseInt(perDayRaw, 10) || 0));
+  try {
+    await api(`/lists/${id}`,{method:"PATCH",body:JSON.stringify({angle: angle.trim() || null, perDay})});
+    await load();
+    toast(perDay ? `Campaign on — ${perDay}/day` : "Back to a plain collection");
+  } catch(e){ toast("Error: "+e.message); }
 }
 async function renameList(id){
   const cur = listName(id); const name = prompt("Rename list:", cur); if(!name||name===cur) return;

@@ -39,8 +39,12 @@ listsRoute.get("/:id", async (c) => {
 
 listsRoute.patch("/:id", async (c) => {
   const parsed = ListInput.partial().safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success || !parsed.data.name) return c.json({ error: "invalid" }, 400);
-  const updated = await lists.rename(c.env.DB, c.req.param("id"), parsed.data.name);
+  if (!parsed.success) return c.json({ error: "invalid", issues: parsed.error.issues }, 400);
+  const { name, angle, perDay } = parsed.data;
+  if (name === undefined && angle === undefined && perDay === undefined) {
+    return c.json({ error: "nothing to update" }, 400);
+  }
+  const updated = await lists.update(c.env.DB, c.req.param("id"), { name, angle, perDay });
   return updated ? c.json(updated) : c.json({ error: "not found" }, 404);
 });
 
