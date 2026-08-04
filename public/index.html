@@ -1028,9 +1028,31 @@ async function openDetail(id){
       ${compRec?`<a href="#co/${compRec.id}">${esc(compRec.name)} ↗</a>`:""}
       ${(c.phones||[]).map(p=>`<a href="tel:${esc(p)}" onclick="callWith('${esc(p)}');return false;" title="Call with Handset">📞 ${esc(p)}</a>`).join("")}
     </div>` : "";
-  const logAndHist = id ? `
-    <div class="hist" style="border-top:0;margin-top:2px;padding-top:0">
-      <label>Log interaction</label>
+  // One section per kind of record: activity (messages/meetings + the log
+  // form), calls, emails, notes, then the editable details. Same field ids
+  // everywhere — saveDetail doesn't care about the order on screen.
+  const secH = t => `<div class="side-label" style="padding:16px 0 4px">${t}</div>`;
+  const itRow = i => `<div class="it"><span class="w">${i.occurredAt.slice(0,10)} · ${i.channel}</span><span>${esc(i.summary)}</span></div>`;
+  const calls = hist.filter(i=>i.channel==="call");
+  const emailHist = hist.filter(i=>i.channel==="email");
+  const noteHist = hist.filter(i=>i.channel==="note");
+  const activityHist = hist.filter(i=>!["call","email","note"].includes(i.channel));
+  const emailsRow = `
+    <div class="row">
+      <div><label>Emails (comma-sep)</label><input id="dEmails" value="${esc((c.emails||[]).join(", "))}"></div>
+    </div>
+    ${(!c.emails||!c.emails.length)?`<div class="row"><div>
+      <label>Guess email <span style="color:var(--faint);font-weight:400">— pick one to fill the field</span></label>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:7px">
+        <span class="muted" style="font-size:13px">@</span>
+        <input id="dDomain" value="${esc(guessDomain(c.company))}" placeholder="company.com" style="max-width:240px">
+      </div>
+      <div id="emailGuesses" class="guess-list"></div>
+    </div></div>`:""}`;
+  const notesRow = `<div class="row"><div><textarea id="dNotes" placeholder="Anything worth remembering about them…">${esc(c.notes)}</textarea></div></div>`;
+  const sections = id ? `
+    ${secH("Activity")}
+    <div class="hist" style="border-top:0;margin-top:0;padding-top:0">
       <div class="row">
         <div style="flex:0 0 110px"><select class="field" id="logCh">${["call","email","meeting","message","note"].map(x=>`<option>${x}</option>`).join("")}</select></div>
         <div style="flex:1"><input id="logSum" placeholder="what happened…"></div>
@@ -1038,9 +1060,16 @@ async function openDetail(id){
         <button class="btn" id="logBtn">Log</button>
       </div>
       <div class="sub" style="margin:-4px 0 6px">${c.followUpAt?`Next follow-up: <b>${esc(c.followUpAt.slice(0,10))}</b>${c.followUpNote?` — ${esc(c.followUpNote)}`:""}`:"No follow-up set — add a date when you log, or below."}</div>
-      ${hist.length?hist.map(i=>`<div class="it"><span class="w">${i.occurredAt.slice(0,10)} · ${i.channel}</span><span>${esc(i.summary)}</span></div>`).join(""):`<div class="empty">No interactions yet.</div>`}
+      ${activityHist.length?activityHist.map(itRow).join(""):`<div class="empty">No messages or meetings yet.</div>`}
     </div>
-    <div class="side-label" style="padding:14px 0 4px">Details</div>` : "";
+    ${calls.length?secH(`Calls · ${calls.length}`)+`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${calls.map(itRow).join("")}</div>`:""}
+    ${secH(`Emails${emailHist.length?` · ${emailHist.length}`:""}`)}
+    ${emailHist.length?`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${emailHist.map(itRow).join("")}</div>`:""}
+    ${emailsRow}
+    ${secH("Notes")}
+    ${notesRow}
+    ${noteHist.length?`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${noteHist.map(itRow).join("")}</div>`:""}
+    ${secH("Details")}` : "";
   $("#modal").innerHTML = `
     <span class="x" onclick="closeTo()">×</span>
     <h3>${id?esc(c.name):"New contact"}</h3>
@@ -1052,7 +1081,7 @@ async function openDetail(id){
       c.notes?esc((c.notes.split("\n")[0]).slice(0,120)):"",
     ].filter(Boolean).join(" · ")}</div>`:""}
     ${quickActions}
-    ${logAndHist}
+    ${sections}
     <div class="row">
       <div><label>Name</label><input id="dName" value="${esc(c.name)}"></div>
       <div><label>Company</label><input id="dCompany" value="${esc(c.company)}"></div>
@@ -1061,18 +1090,19 @@ async function openDetail(id){
       <div><label>Title</label><input id="dTitle" value="${esc(c.title)}"></div>
       <div><label>LinkedIn${c.linkedin?` · <a href="${esc(c.linkedin)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">open ↗</a>`:""} · <a href="${liSearch}" target="_blank" rel="noopener" style="color:var(--muted);font-weight:600">search ⌕</a></label><input id="dLinkedin" value="${esc(c.linkedin)}"></div>
     </div>
-    <div class="row">
+    ${id?`<div class="row"><div><label>Phones (comma-sep)</label><input id="dPhones" value="${esc((c.phones||[]).join(", "))}"></div></div>`
+       :`<div class="row">
       <div><label>Emails (comma-sep)</label><input id="dEmails" value="${esc((c.emails||[]).join(", "))}"></div>
       <div><label>Phones (comma-sep)</label><input id="dPhones" value="${esc((c.phones||[]).join(", "))}"></div>
     </div>
-    ${(!c.emails||!c.emails.length)?`<div class="row"><div>
+    <div class="row"><div>
       <label>Guess email <span style="color:var(--faint);font-weight:400">— pick one to fill the field</span></label>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:7px">
         <span class="muted" style="font-size:13px">@</span>
         <input id="dDomain" value="${esc(guessDomain(c.company))}" placeholder="company.com" style="max-width:240px">
       </div>
       <div id="emailGuesses" class="guess-list"></div>
-    </div></div>`:""}
+    </div></div>`}
     <div class="row">
       <div><label>Stage</label><select class="field" id="dStage"><option value="">— none —</option>${STAGES.map(s=>`<option ${s===stage?"selected":""}>${s}</option>`).join("")}</select></div>
       <div><label>ICP</label><select class="field" id="dIcp"><option value="">— none —</option>${["dev","biz"].map(s=>`<option ${s===icp?"selected":""}>${s}</option>`).join("")}</select></div>
@@ -1086,7 +1116,7 @@ async function openDetail(id){
       <div><label>Next follow-up</label><input type="date" id="dNext" value="${c.followUpAt?c.followUpAt.slice(0,10):""}"></div>
       <div><label>About</label><input id="dNextNote" value="${esc(c.followUpNote)}"></div>
     </div>
-    <div class="row"><div><label>Notes</label><textarea id="dNotes">${esc(c.notes)}</textarea></div></div>
+    ${id?"":`<div class="row"><div><label>Notes</label><textarea id="dNotes">${esc(c.notes)}</textarea></div></div>`}
     <div class="actions">
       ${id?`<button class="btn danger" id="delBtn">Delete</button>`:""}
       <div class="grow"></div>
