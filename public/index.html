@@ -832,9 +832,9 @@ function todayGroups(){
     .sort((a,b)=> (lastDate(a)||"0") < (lastDate(b)||"0") ? -1 : 1);
   return { today, overdue, due, drifting };
 }
-// Who a campaign should surface today: its members, never contacted, not
+// Who an offer should surface today: its members, never contacted, not
 // dismissed, not already written to this morning — capped at its daily number.
-function campaignPicks(){
+function offerPicks(){
   const out = [];
   for (const l of LISTS.filter(l => (l.perDay||0) > 0)){
     const members = CONTACTS.filter(c =>
@@ -873,17 +873,17 @@ function renderToday(){
   });
   block("Follow up", "they're waiting on you", owed);
 
-  // 2 — new conversations, drawn from campaigns so the pick has a reason.
-  const picks = campaignPicks().filter(p => !search || matchesSearch(p.c));
+  // 2 — new conversations, drawn from live offers so the pick has a reason.
+  const picks = offerPicks().filter(p => !search || matchesSearch(p.c));
   const started = picks.filter(p => take(p.c))
-    // The campaign's own message, personalised — not the generic template.
-    .map(p => todayRow(p.c, `${p.list.name}`, "", p.c.draft || fillTemplate(p.list.template, p.c) || draftFor(p.c)));
-  // No campaign running? Fall back to a couple of never-contacted people so
+    // The offer itself, personalised — not a generic template.
+    .map(p => todayRow(p.c, `${p.list.name}`, "", p.c.draft || fillOffer(p.list.offer, p.c) || draftFor(p.c)));
+  // No offer running? Fall back to a couple of never-contacted people so
   // the block isn't silently empty — but say plainly that nothing's steering it.
   const fallback = picks.length ? [] :
     outreachSuggestions().filter(c => (!search || matchesSearch(c)) && take(c)).slice(0, 2)
-      .map(c => todayRow(c, "no campaign — suggested", "", c.draft || draftFor(c)));
-  block("Start", picks.length ? "first touches from your campaigns" : "no campaign running — set one up in Lists",
+      .map(c => todayRow(c, "no offer — suggested", "", c.draft || draftFor(c)));
+  block("Start", picks.length ? "first touches from your offers" : "no offer running — add one in Lists",
         [...started, ...fallback]);
 
   // 3 — drafts written for people who fit neither block above.
@@ -970,7 +970,7 @@ function renderContacts(){
   if (listFilter){
     banner.style.display="";
     const l = LISTS.find(x => x.id === listFilter);
-    $("#listBannerName").textContent = listName(listFilter) + (l && l.perDay ? ` · campaign, ${l.perDay}/day` : "");
+    $("#listBannerName").textContent = listName(listFilter) + (l && l.perDay ? ` · offer running, ${l.perDay}/day` : "");
   }
   else banner.style.display="none";
   let cs = CONTACTS.filter(matchesSearch);
@@ -1247,10 +1247,10 @@ function renderLists(){
     el.dataset.id = l.id;
     el.innerHTML = `
       <div><span class="nm">${esc(l.name)}</span>
-        <div class="co">${l.perDay ? `campaign · ${l.perDay}/day` : "collection"}${l.template?` · “${esc(l.template.slice(0,70))}${l.template.length>70?"…":""}”`:l.perDay?" · no message yet":""}</div></div>
+        <div class="co">${l.perDay ? `offer · ${l.perDay}/day` : "collection"}${l.offer?` · “${esc(l.offer.slice(0,70))}${l.offer.length>70?"…":""}”`:l.perDay?" · offer not written":""}</div></div>
       <div class="meta">${l.memberCount} member${l.memberCount===1?"":"s"}</div>
       <div class="tags" style="justify-content:flex-end;gap:6px">
-        <button class="btn ghost" data-campaign="${l.id}">${l.perDay?"Campaign ✓":"Make campaign"}</button>
+        <button class="btn ghost" data-offer="${l.id}">${l.perDay?"Edit offer":"Add offer"}</button>
         <button class="btn ghost" data-rename="${l.id}">Rename</button>
         <button class="btn danger" data-del="${l.id}">Delete</button>
       </div>`;
@@ -1262,7 +1262,7 @@ function renderLists(){
     });
     box.appendChild(el);
   }
-  box.querySelectorAll("[data-campaign]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); editCampaign(b.dataset.campaign); });
+  box.querySelectorAll("[data-offer]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); editOffer(b.dataset.offer); });
   box.querySelectorAll("[data-rename]").forEach(b=>b.onclick=()=>renameList(b.dataset.rename));
   box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delList(b.dataset.del));
   $("#lstat").textContent = `${LISTS.length} list${LISTS.length===1?"":"s"}`;
@@ -1272,9 +1272,9 @@ async function newList(){
   const name = prompt("New list name:"); if(!name) return;
   await api("/lists",{method:"POST",body:JSON.stringify({name})}); await load(); toast("List created");
 }
-// The campaign's message, with the person dropped into it. Anything unknown
+// The offer with the person dropped into it. Anything unknown
 // leaves no gap — a message with a dangling "at " reads worse than one without.
-function fillTemplate(tpl, c){
+function fillOffer(tpl, c){
   if (!tpl) return "";
   const first = (c.name||"").split(/\s+/)[0] || "there";
   return deDash(tpl)
@@ -1284,43 +1284,44 @@ function fillTemplate(tpl, c){
     .replace(/\{title\}/g, c.title || "")
     .replace(/ +([,.])/g, "$1").replace(/ {2,}/g, " ").trim();
 }
-// A campaign is a list plus the two things the morning needs: the message
-// these people get, and how many a day.
-function editCampaign(id){
+// An offer is what this list gets put in front of them, plus how many a day.
+// Naming it the offer is the point: when nobody replies, the offer is the
+// thing you change.
+function editOffer(id){
   const l = LISTS.find(x=>x.id===id); if(!l) return;
   const sample = CONTACTS.find(c => listIdsOf(c).includes(l.id));
   $("#modal").innerHTML = `
     <span class="x" onclick="closeTo()">×</span>
-    <h3>Campaign — ${esc(l.name)}</h3>
-    <div class="sub">The message everyone on this list gets, and how many go out a day.</div>
+    <h3>Offer — ${esc(l.name)}</h3>
+    <div class="sub">What you put in front of everyone on this list, and how many go out a day.</div>
     <div class="row" style="margin-top:10px"><div>
-      <label>Message <span style="color:var(--faint);font-weight:400">— {first}, {name}, {company}, {title} get filled in</span></label>
-      <textarea id="campTpl" style="min-height:150px">${esc(l.template||"")}</textarea>
+      <label>The offer <span style="color:var(--faint);font-weight:400">— {first}, {name}, {company}, {title} get filled in</span></label>
+      <textarea id="campTpl" style="min-height:150px">${esc(l.offer||"")}</textarea>
     </div></div>
     <div class="row">
       <div style="flex:0 0 160px"><label>Per day</label><input type="number" id="campPerDay" min="0" max="50" value="${l.perDay||0}"></div>
       <div><label>Preview${sample?` — ${esc(sample.name)}`:""}</label><div id="campPreview" class="sub" style="white-space:pre-wrap;margin:0;padding:8px 10px;border:1px solid var(--border);border-radius:8px;min-height:40px"></div></div>
     </div>
-    <div class="sub" style="color:var(--faint)">0 per day leaves this a plain collection — curated, but not feeding the morning.</div>
+    <div class="sub" style="color:var(--faint)">0 per day parks the offer — the list stays curated, it just stops feeding the morning.</div>
     <div class="actions">
       <div class="grow"></div>
       <button class="btn ghost" onclick="closeTo()">Cancel</button>
-      <button class="btn" id="campSave">Save campaign</button>
+      <button class="btn" id="campSave">Save offer</button>
     </div>`;
   const paint = () => {
     $("#campPreview").textContent = sample
-      ? (fillTemplate($("#campTpl").value, sample) || "…")
+      ? (fillOffer($("#campTpl").value, sample) || "…")
       : "Add someone to the list to preview it.";
   };
   $("#campTpl").addEventListener("input", paint); paint();
   $("#campSave").onclick = async () => {
     const perDay = Math.max(0, Math.min(50, parseInt($("#campPerDay").value,10) || 0));
-    const template = $("#campTpl").value.trim();
-    if (perDay > 0 && !template){ toast("A running campaign needs a message"); return; }
+    const offerText = $("#campTpl").value.trim();
+    if (perDay > 0 && !offerText){ toast("A running offer needs a message"); return; }
     try {
-      await api(`/lists/${id}`,{method:"PATCH",body:JSON.stringify({ template: template || null, perDay })});
+      await api(`/lists/${id}`,{method:"PATCH",body:JSON.stringify({ offer: offerText || null, perDay })});
       await load(); closeModal();
-      toast(perDay ? `Campaign on — ${perDay}/day` : "Back to a plain collection");
+      toast(perDay ? `Offer running — ${perDay}/day` : "Offer parked");
     } catch(e){ toast("Error: "+e.message); }
   };
   $("#scrim").classList.add("on");

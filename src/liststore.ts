@@ -16,7 +16,7 @@ function rowToList(row: Record<string, unknown>): ContactList {
   return {
     id: String(row.id),
     name: String(row.name),
-    template: (row.template as string) ?? null,
+    offer: (row.offer as string) ?? null,
     perDay: Number(row.perDay ?? 0),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
@@ -41,7 +41,7 @@ export async function create(db: D1Database, name: string): Promise<ContactList>
   while (await get(db, id)) id = `${base}-${n++}`;
 
   const now = new Date().toISOString();
-  const list: ContactList = { id, name, template: null, perDay: 0, createdAt: now, updatedAt: now };
+  const list: ContactList = { id, name, offer: null, perDay: 0, createdAt: now, updatedAt: now };
   await db
     .prepare("INSERT INTO lists (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)")
     .bind(list.id, list.name, list.createdAt, list.updatedAt)
@@ -49,18 +49,18 @@ export async function create(db: D1Database, name: string): Promise<ContactList>
   return list;
 }
 
-/** Patch name, message template and/or the daily quota. Only what's named changes. */
+/** Patch name, offer and/or the daily number. Only what's named changes. */
 export async function update(
   db: D1Database,
   id: string,
-  patch: { name?: string; template?: string | null; perDay?: number },
+  patch: { name?: string; offer?: string | null; perDay?: number },
 ): Promise<ContactList | null> {
   const existing = await get(db, id);
   if (!existing) return null;
   const sets: string[] = [];
   const binds: unknown[] = [];
   if (patch.name !== undefined) { sets.push("name = ?"); binds.push(patch.name); }
-  if (patch.template !== undefined) { sets.push("template = ?"); binds.push(patch.template); }
+  if (patch.offer !== undefined) { sets.push("offer = ?"); binds.push(patch.offer); }
   if (patch.perDay !== undefined) { sets.push("perDay = ?"); binds.push(patch.perDay); }
   const updatedAt = new Date().toISOString();
   if (sets.length) {

@@ -6353,10 +6353,10 @@ var InteractionInput = external_exports.object({
 });
 var ListInput = external_exports.object({
   name: external_exports.string().min(1, "name is required"),
-  // The message sent to these people, with {first}/{company}/{title} filled in
-  // per person, plus how many a day. perDay > 0 makes the list a campaign and
-  // the daily queue draws first touches from it.
-  template: external_exports.string().nullable().optional(),
+  // What you're putting in front of these people — the message itself, with
+  // {first}/{company}/{title} filled in per person — plus how many a day.
+  // An offer with perDay > 0 is running: the daily queue draws from it.
+  offer: external_exports.string().nullable().optional(),
   perDay: external_exports.number().int().min(0).max(50).optional()
 });
 
@@ -6722,7 +6722,7 @@ function rowToList(row) {
   return {
     id: String(row.id),
     name: String(row.name),
-    template: row.template ?? null,
+    offer: row.offer ?? null,
     perDay: Number(row.perDay ?? 0),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt)
@@ -6745,7 +6745,7 @@ async function create2(db, name) {
   let n = 2;
   while (await get2(db, id)) id = `${base}-${n++}`;
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const list3 = { id, name, template: null, perDay: 0, createdAt: now, updatedAt: now };
+  const list3 = { id, name, offer: null, perDay: 0, createdAt: now, updatedAt: now };
   await db.prepare("INSERT INTO lists (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)").bind(list3.id, list3.name, list3.createdAt, list3.updatedAt).run();
   return list3;
 }
@@ -6759,9 +6759,9 @@ async function update2(db, id, patch) {
     sets.push("name = ?");
     binds.push(patch.name);
   }
-  if (patch.template !== void 0) {
-    sets.push("template = ?");
-    binds.push(patch.template);
+  if (patch.offer !== void 0) {
+    sets.push("offer = ?");
+    binds.push(patch.offer);
   }
   if (patch.perDay !== void 0) {
     sets.push("perDay = ?");
@@ -6808,11 +6808,11 @@ listsRoute.get("/:id", async (c) => {
 listsRoute.patch("/:id", async (c) => {
   const parsed = ListInput.partial().safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "invalid", issues: parsed.error.issues }, 400);
-  const { name, template, perDay } = parsed.data;
-  if (name === void 0 && template === void 0 && perDay === void 0) {
+  const { name, offer, perDay } = parsed.data;
+  if (name === void 0 && offer === void 0 && perDay === void 0) {
     return c.json({ error: "nothing to update" }, 400);
   }
-  const updated = await update2(c.env.DB, c.req.param("id"), { name, template, perDay });
+  const updated = await update2(c.env.DB, c.req.param("id"), { name, offer, perDay });
   return updated ? c.json(updated) : c.json({ error: "not found" }, 404);
 });
 listsRoute.delete("/:id", async (c) => {
