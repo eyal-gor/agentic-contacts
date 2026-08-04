@@ -332,6 +332,7 @@
     <div class="nav" style="margin-top:auto">
       <a class="extLink" href="https://polenta.ai" target="_blank" rel="noopener">Polenta ↗</a>
       <button id="themeBtn">◐ Light mode</button>
+      <button id="signOutBtn">Sign out</button>
     </div>
   </aside>
 
@@ -1377,6 +1378,10 @@ $("#newListBtn").addEventListener("click",newList);
 $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.hash="#contacts"; });
 $("#refresh").addEventListener("click",load);
 $("#loginBtn").addEventListener("click",doLogin);
+$("#signOutBtn").addEventListener("click",()=>{
+  try { localStorage.removeItem(KEY_STORAGE); } catch {}
+  location.reload();   // next load 401s → sign-in card
+});
 $("#loginPw").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 $("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim") closeTo(); });
 /* ---------- keyboard navigation ---------- */
