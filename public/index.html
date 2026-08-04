@@ -350,9 +350,10 @@
     <!-- SETTINGS VIEW: credentials — mint and revoke machine keys -->
     <section id="viewSettings" class="scroll hide">
       <div class="toolbar"><span class="cal-title">Settings</span></div>
-      <div class="side-label" style="padding:8px 0 4px">API keys</div>
-      <p class="sub" style="max-width:560px">Apps read and write with a key; you sign in with the password.
-        A key is shown once when minted — copy it then. Revoking cuts the app off immediately.</p>
+      <div class="side-label" style="padding:8px 0 4px">Credentials</div>
+      <p class="sub" style="max-width:620px">Everything that can open this app is listed below — your password, the
+        shared key other services hold, and the keys minted here. A minted key is shown once, at mint time;
+        after that only its fingerprint exists. Revoking one cuts that app off immediately.</p>
       <div style="display:flex;gap:8px;max-width:460px;margin:6px 0 10px">
         <input id="newKeyName" placeholder="Key name — which app is this for?" style="flex:1">
         <button class="btn" id="mintBtn">Mint key</button>
@@ -687,15 +688,39 @@ async function renderSettings(){
   const box = $("#keysList");
   box.innerHTML = `<div class="empty">Loading…</div>`;
   try {
-    const { keys } = await api("/keys");
-    box.innerHTML = keys.length ? "" : `<div class="empty">No minted keys yet. The legacy shared key (in the project .env / Secrets Store) still works but isn't listed here — mint named keys and retire it.</div>`;
-    for (const k of keys){
+    const { keys, credentials } = await api("/keys");
+    box.innerHTML = "";
+    const row = (title, sub, right) => {
       const el = document.createElement("div"); el.className = "crow"; el.style.cursor = "default";
-      el.innerHTML = `
-        <div><span class="nm">${esc(k.name)}</span> <span class="co">· <code style="font-size:11px">${esc(k.prefix)}</code></span></div>
-        <div class="meta">minted ${k.createdAt.slice(0,10)} · ${k.lastUsedAt?`last used ${k.lastUsedAt.slice(0,10)}`:"never used"}</div>
-        <div>${k.revokedAt?`<span class="pill next over">revoked ${k.revokedAt.slice(0,10)}</span>`:`<button class="btn danger" data-revoke="${k.id}">Revoke</button>`}</div>`;
-      box.appendChild(el);
+      el.innerHTML = `<div>${title}</div><div class="meta">${sub}</div><div>${right||""}</div>`;
+      return el;
+    };
+    const head = t => { const h=document.createElement("div"); h.className="today-h"; h.textContent=t; box.appendChild(h); };
+
+    // Everything that can open this app, in one list — managed here or not.
+    head("Your sign-in");
+    box.appendChild(row(
+      `<span class="nm">Password</span> <span class="co">· you, in a browser</span>`,
+      credentials?.password?.configured
+        ? `signs you in for ${credentials.password.sessionDays} days · changing it signs out every browser at once`
+        : `not set — anyone with a key can still get in`,
+      credentials?.password?.configured ? `<span class="pill stage">active</span>` : `<span class="pill next over">not set</span>`));
+
+    head("Shared key — managed outside this screen");
+    box.appendChild(row(
+      `<span class="nm">Legacy shared key</span> <span class="co">· <code style="font-size:11px">${esc(credentials?.shared?.prefix||"—")}</code></span>`,
+      credentials?.shared?.configured
+        ? `lives in ${esc(credentials.shared.source)} · other services bind the same value, so it can't be revoked from here · usage not tracked`
+        : `not configured`,
+      `<span class="pill">rotate at source</span>`));
+
+    head(`Minted keys${keys.length?` · ${keys.filter(k=>!k.revokedAt).length} active`:""}`);
+    if (!keys.length) box.appendChild(row(`<span class="co">None yet</span>`, `Mint one above and give it to an app — then it's listed, tracked and revocable here.`, ""));
+    for (const k of keys){
+      box.appendChild(row(
+        `<span class="nm">${esc(k.name)}</span> <span class="co">· <code style="font-size:11px">${esc(k.prefix)}</code></span>`,
+        `minted ${k.createdAt.slice(0,10)} · ${k.lastUsedAt?`last used ${k.lastUsedAt.slice(0,10)}`:"never used"}`,
+        k.revokedAt?`<span class="pill next over">revoked ${k.revokedAt.slice(0,10)}</span>`:`<button class="btn danger" data-revoke="${k.id}">Revoke</button>`));
     }
   } catch(e){ box.innerHTML = `<div class="empty">Couldn't load keys: ${esc(e.message)}</div>`; }
   $("#stat").textContent = "";

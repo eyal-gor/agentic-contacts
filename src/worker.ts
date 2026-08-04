@@ -65,7 +65,28 @@ app.route("/lists", listsRoute);
 
 // Key management, backing the Settings screen. Minting returns the plaintext
 // exactly once; after that only the hash exists.
-app.get("/keys", requireApiKey, async (c) => c.json({ keys: await keys.listKeys(c.env) }));
+/**
+ * Every credential that opens this API, not just the ones minted here.
+ *
+ * The shared key and the password live in Worker secrets, so they can't be
+ * listed from the database — but a credential the screen doesn't mention is a
+ * credential nobody remembers to retire. They're reported alongside, marked
+ * as managed elsewhere.
+ */
+app.get("/keys", requireApiKey, async (c) => {
+  const shared = c.env.API_KEY_STORE ? await c.env.API_KEY_STORE.get() : c.env.API_KEY;
+  return c.json({
+    keys: await keys.listKeys(c.env),
+    credentials: {
+      password: { configured: Boolean(c.env.APP_PASSWORD), sessionDays: 30 },
+      shared: {
+        configured: Boolean(shared),
+        prefix: shared ? shared.slice(0, 12) + "…" : null,
+        source: c.env.API_KEY_STORE ? "Cloudflare Secrets Store (account-level)" : "Worker secret",
+      },
+    },
+  });
+});
 app.post("/keys", requireApiKey, async (c) => {
   const { name } = (await c.req.json().catch(() => ({}))) as { name?: string };
   if (!name?.trim()) return c.json({ error: "name is required" }, 400);
