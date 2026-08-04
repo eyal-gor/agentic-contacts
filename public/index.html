@@ -286,6 +286,33 @@
   .guess span { font-family: var(--mono, "SF Mono", Menlo, monospace); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
   .hist { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
+  /* Relevance verdicts */
+  .pill.rel.relevant { background: rgba(76,195,138,.15); color: #84d6ac; }
+  .pill.rel.maybe    { background: rgba(224,193,80,.16); color: #e6cf78; }
+  .pill.rel.not      { background: rgba(235,87,87,.14);  color: #f09a9a; }
+  .pill.rel.dupe     { background: rgba(140,140,150,.18); color: var(--muted); }
+  html[data-theme="light"] .pill.rel.relevant { background: rgba(31,138,89,.14); color: #1a6b45; }
+  html[data-theme="light"] .pill.rel.maybe    { background: rgba(202,160,49,.18); color: #856819; }
+  html[data-theme="light"] .pill.rel.not      { background: rgba(229,72,77,.12); color: #c0343a; }
+  .relBar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 10px; }
+  .relBar .btn { padding: 4px 10px; font-size: 11.5px; }
+  .relBar .btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* ⌘K command palette */
+  .cmdk { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(3px);
+    display: none; align-items: flex-start; justify-content: center; z-index: 90; padding-top: 12vh; }
+  .cmdk.on { display: flex; }
+  .cmdk .box { background: var(--elevated); border: 1px solid var(--border); border-radius: 12px;
+    width: 560px; max-width: calc(100vw - 32px); box-shadow: 0 24px 70px rgba(0,0,0,.55); overflow: hidden; }
+  .cmdk input { width: 100%; margin: 0; border: 0; border-bottom: 1px solid var(--border);
+    border-radius: 0; padding: 14px 16px; font-size: 14px; background: transparent; }
+  .cmdk input:focus { outline: none; }
+  .cmdk .results { max-height: 46vh; overflow-y: auto; padding: 6px; }
+  .cmdk .item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px;
+    cursor: pointer; font-size: 13px; color: var(--text); }
+  .cmdk .item .hint { margin-left: auto; font-size: 11px; color: var(--faint); }
+  .cmdk .item.on { background: var(--accent); color: #fff; }
+  .cmdk .item.on .hint { color: rgba(255,255,255,.75); }
+  .cmdk .none { padding: 16px; color: var(--faint); font-size: 13px; }
   /* Next-follow-up bar: edit the date where you read it */
   .fuBar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 2px 0 10px; }
   .fuBar input[type=date] { width: auto; margin: 0; }
@@ -483,6 +510,12 @@
 
 <div class="scrim" id="scrim"><div class="modal" id="modal"></div></div>
 
+<!-- ⌘K command palette: everything you can do, by name. -->
+<div class="cmdk" id="cmdk"><div class="box">
+  <input id="cmdkInput" placeholder="Type a command… (people, views, verdicts)" autocomplete="off" spellcheck="false">
+  <div class="results" id="cmdkResults"></div>
+</div></div>
+
 <!-- Sign-in: shown whenever the API answers 401. -->
 <div class="kb" id="loginCard"><div class="card" style="min-width:300px">
   <h3>Sign in</h3>
@@ -504,7 +537,15 @@
     <tr><td><kbd>Enter</kbd></td><td>open selected</td></tr>
     <tr><td><kbd>Space</kbd></td><td>mark sent (outreach)</td></tr>
     <tr><td><kbd>⌘↑</kbd> <kbd>⌘↓</kbd></td><td>previous / next view</td></tr>
-    <tr><td><kbd>?</kbd> or <kbd>⌘K</kbd></td><td>this card</td></tr>
+    <tr><td><kbd>⌘K</kbd></td><td>command palette — verdicts, follow-ups, people, views</td></tr>
+    <tr><td><kbd>?</kbd></td><td>this card</td></tr>
+  </table>
+  <h3 style="margin:14px 0 10px">With a contact open</h3>
+  <table>
+    <tr><td><kbd>r</kbd></td><td>relevant</td></tr>
+    <tr><td><kbd>m</kbd></td><td>maybe</td></tr>
+    <tr><td><kbd>n</kbd></td><td>not relevant — drops out of Today</td></tr>
+    <tr><td><kbd>d</kbd></td><td>duplicate — drops out of Today</td></tr>
   </table>
 </div></div>
 <!-- Floating handset: iframe loads on first Call click, never eagerly. -->
@@ -575,7 +616,15 @@ const api = async (path, init, _retried) => {
 const stageOf = c => (c.tags||[]).find(t=>t.startsWith("stage:"))?.slice(6) || null;
 const icpOf   = c => (c.tags||[]).find(t=>t.startsWith("icp:"))?.slice(4) || null;
 const circleOf = c => (c.tags||[]).find(t=>t.startsWith("circle:"))?.slice(7) || null;
-const freeTags = c => (c.tags||[]).filter(t=>!t.startsWith("stage:")&&!t.startsWith("icp:")&&!t.startsWith("list:")&&!t.startsWith("circle:"));
+const freeTags = c => (c.tags||[]).filter(t=>!t.startsWith("stage:")&&!t.startsWith("icp:")&&!t.startsWith("list:")&&!t.startsWith("circle:")&&!t.startsWith("rel:"));
+/* Relevance — a verdict on whether this person is worth your time at all.
+   Separate from stage, which assumes they already are. Suggestions arrive
+   unjudged; this is how a wrong one gets out of the way in one keystroke. */
+const REL = { relevant:"relevant", maybe:"maybe", not:"not relevant", dupe:"duplicate" };
+const relOf = c => (c.tags||[]).find(t=>t.startsWith("rel:"))?.slice(4) || null;
+const relPill = c => { const r = relOf(c); return r ? `<span class="pill rel ${r}">${REL[r]||r}</span>` : ""; };
+// Dismissed people shouldn't crowd the queue, but stay findable in Contacts.
+const isDismissed = c => ["not","dupe"].includes(relOf(c));
 const listIdsOf = c => (c.tags||[]).filter(t=>t.startsWith("list:")).map(t=>t.slice(5));
 const listName = id => (LISTS.find(l=>l.id===id)||{}).name || id;
 const esc = s => (s??"").replace(/[&<>"]/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
@@ -667,7 +716,7 @@ function todayRow(c, why, cls){
   const who = [c.title, c.company].filter(Boolean).join(" · ");
   el.innerHTML = `
     <div style="display:flex;gap:10px;align-items:center;min-width:0">${avatarHtml(c,30)}<div style="min-width:0"><span class="nm">${esc(c.name)}</span>${who?` <span class="co">· ${esc(who)}</span>`:""}</div></div>
-    <div class="tags">${st?`<span class="pill stage">${st}</span>`:""}</div>
+    <div class="tags">${relPill(c)}${st?`<span class="pill stage">${st}</span>`:""}</div>
     <div class="meta"><span class="pill next ${cls||""}">${esc(why)}</span>
       ${lastDate(c)?` · last ${lastDate(c)}`:" · never talked"}</div>`;
   el.addEventListener("click", ()=>{ location.hash = "#c/"+c.id; });
@@ -675,7 +724,8 @@ function todayRow(c, why, cls){
 }
 function todayGroups(){
   const today = new Date().toISOString().slice(0,10);
-  const cs = CONTACTS.filter(c => !(c.tags||[]).includes("do-not-contact"));
+  // Dismissed people never reach the queue — that's the whole point of a verdict.
+  const cs = CONTACTS.filter(c => !(c.tags||[]).includes("do-not-contact") && !isDismissed(c));
   const fu = c => (c.followUpAt||"").slice(0,10);
   const overdue = cs.filter(c => fu(c) && fu(c) < today)
     .sort((a,b)=> fu(a) < fu(b) ? -1 : 1);
@@ -794,6 +844,7 @@ function renderContacts(){
     el.innerHTML = `
       <div style="display:flex;gap:10px;align-items:center;min-width:0">${avatarHtml(c,30)}<div style="min-width:0"><span class="nm">${esc(c.name)}</span>${c.company?` <span class="co">· ${esc(c.company)}</span>`:""}${c.linkedin?` <a class="li" href="${esc(c.linkedin)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">in↗</a>`:""}${c.title?`<div class="co">${esc(c.title)}</div>`:""}</div></div>
       <div class="tags">
+        ${relPill(c)}
         ${circle?`<span class="pill circle c${circle}" title="circle ${circle}">${circle}°</span>`:""}
         ${st?`<span class="pill stage">${st}</span>`:""}
         ${icp?`<span class="pill icp">icp:${esc(icp)}</span>`:""}
@@ -1167,6 +1218,13 @@ async function openDetail(id){
   // Company record behind this contact, if the companies table knows it.
   const compRec = id ? COMPANIES.find(co => co.id === c.companyId
     || (c.company||"").trim().toLowerCase() === (co.name||"").trim().toLowerCase()) : null;
+  const relNow = relOf(c);
+  const relBar = id ? `
+    <div class="relBar">
+      <span class="sub" style="margin:0">Verdict</span>
+      ${Object.entries(REL).map(([k,label])=>`<button class="btn ghost ${relNow===k?"on":""}" data-rel="${k}">${label}</button>`).join("")}
+      <span class="sub" style="margin:0;color:var(--faint)">r · m · n · d</span>
+    </div>` : "";
   const quickActions = id ? `
     <div class="quick">
       ${(c.emails&&c.emails[0])?`<a href="mailto:${esc(c.emails[0])}">✉ ${esc(c.emails[0])}</a>`:""}
@@ -1251,6 +1309,7 @@ async function openDetail(id){
       hist.length?`${hist.length} touch${hist.length>1?"es":""}, last ${hist[0].channel} ${hist[0].occurredAt.slice(0,10)}: “${esc(hist[0].summary.length>90?hist[0].summary.slice(0,90)+"…":hist[0].summary)}”`:"never talked",
       c.notes?esc((c.notes.split("\n")[0]).slice(0,120)):"",
     ].filter(Boolean).join(" · ")}</div>`:""}
+    ${relBar}
     ${quickActions}
     ${id?`<div class="cardCols">${cardNav}<div class="cardBody">`:""}
     ${sections}
@@ -1308,6 +1367,9 @@ async function openDetail(id){
       document.querySelectorAll("#modal .it").forEach(r=>{
         r.style.display = !q || r.textContent.toLowerCase().includes(q) ? "" : "none";
       });
+    });
+    document.querySelectorAll("#modal .relBar [data-rel]").forEach(b => {
+      b.onclick = () => setRelevance(id, relOf(CONTACTS.find(x=>x.id===id)||{}) === b.dataset.rel ? "" : b.dataset.rel);
     });
     $("#fuDate").addEventListener("change", e => setFollowUp(id, e.target.value));
     document.querySelectorAll("#modal .fuBar [data-fu]").forEach(b => {
@@ -1401,6 +1463,29 @@ async function delContact(id){
   if (!confirm("Delete this contact and its history?")) return;
   await api(`/contacts/${id}`,{method:"DELETE"}); await load(); location.hash = "#"+view; toast("Deleted");
 }
+/* ---------- relevance verdicts ---------- */
+// Saves on the spot, like the follow-up: a verdict you must remember to Save
+// is a verdict you don't record, and then the noise stays in the queue.
+async function setRelevance(id, val){
+  const c = CONTACTS.find(x=>x.id===id); if(!c) return;
+  const tags = (c.tags||[]).filter(t=>!t.startsWith("rel:")).concat(val?[`rel:${val}`]:[]);
+  try {
+    await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({tags})});
+    c.tags = tags;
+    document.querySelectorAll("#modal .relBar [data-rel]").forEach(b =>
+      b.classList.toggle("on", b.dataset.rel === val));
+    refreshCounts(); renderActive();
+    toast(val ? `Marked ${REL[val]}` : "Verdict cleared");
+  } catch(e){ toast("Error: "+e.message); }
+}
+// Whichever contact the keys and the palette act on: the open card, else the
+// highlighted row.
+function focusedContactId(){
+  if (detailId) return detailId;
+  const el = selEls()[selIdx];
+  return el && el.dataset.id ? el.dataset.id : null;
+}
+
 /* ---------- next follow-up, edited in place ---------- */
 // Plain words for a date, because "2026-06-17" doesn't say "three weeks late".
 function fuLabel(d){
@@ -1591,6 +1676,77 @@ function kbActivate(isSpace){
   if(view==="companies"){ location.hash = "#co/"+el.dataset.id; return; }               // open the company
   if(el.dataset.id) location.hash = "#c/"+el.dataset.id;                                  // open the contact
 }
+/* ---------- ⌘K command palette ---------- */
+// Commands are rebuilt each time it opens, because half of them are about
+// whichever contact you're standing on.
+let cmdkIdx = 0, cmdkItems = [];
+function cmdkOpen(){
+  cmdkIdx = 0;
+  $("#cmdkInput").value = "";
+  cmdkRender("");
+  $("#cmdk").classList.add("on");
+  setTimeout(()=>$("#cmdkInput").focus(), 30);
+}
+function cmdkClose(){ $("#cmdk").classList.remove("on"); }
+function cmdkCommands(){
+  const id = focusedContactId();
+  const c = id ? CONTACTS.find(x=>x.id===id) : null;
+  const who = c ? c.name : null;
+  const cmds = [];
+  if (c){
+    for (const [k,label] of Object.entries(REL))
+      cmds.push({ label:`Mark ${label}`, hint:who, run:()=>setRelevance(c.id, relOf(c)===k?"":k) });
+    cmds.push({ label:"Follow up in 1 week",  hint:who, run:()=>setFollowUp(c.id, dateIn(7)) });
+    cmds.push({ label:"Follow up in 2 weeks", hint:who, run:()=>setFollowUp(c.id, dateIn(14)) });
+    cmds.push({ label:"Follow up in 1 month", hint:who, run:()=>setFollowUp(c.id, dateIn(30)) });
+    cmds.push({ label:"Clear follow-up",      hint:who, run:()=>setFollowUp(c.id, "") });
+    if (!detailId) cmds.push({ label:`Open ${who}`, hint:"card", run:()=>{ location.hash = "#c/"+c.id; } });
+  }
+  for (const v of KB_VIEWS.concat(["settings"]))
+    cmds.push({ label:`Go to ${v[0].toUpperCase()+v.slice(1)}`, hint:"view", run:()=>{ location.hash = "#"+v; } });
+  cmds.push({ label:"New contact", hint:"", run:()=>{ location.hash = "#new"; } });
+  cmds.push({ label:"Refresh data", hint:"", run:load });
+  cmds.push({ label:"Toggle dark mode", hint:"", run:()=>$("#themeBtn").click() });
+  cmds.push({ label:"Keyboard shortcuts", hint:"?", run:()=>kbHelpToggle(true) });
+  cmds.push({ label:"Sign out", hint:"", run:()=>$("#signOutBtn").click() });
+  // People, so ⌘K doubles as "find someone" without leaving the keyboard.
+  for (const p of CONTACTS.slice(0, 400))
+    cmds.push({ label:p.name, hint:[p.title,p.company].filter(Boolean).join(" · "), person:true, run:()=>{ location.hash = "#c/"+p.id; } });
+  return cmds;
+}
+function cmdkRender(q){
+  const all = cmdkCommands();
+  const needle = q.trim().toLowerCase();
+  cmdkItems = (needle
+    ? all.filter(x => (x.label+" "+(x.hint||"")).toLowerCase().includes(needle))
+    : all.filter(x => !x.person)).slice(0, 40);
+  if (cmdkIdx >= cmdkItems.length) cmdkIdx = 0;
+  const box = $("#cmdkResults");
+  box.innerHTML = cmdkItems.length
+    ? cmdkItems.map((x,i)=>`<div class="item ${i===cmdkIdx?"on":""}" data-i="${i}">${esc(x.label)}${x.hint?`<span class="hint">${esc(x.hint)}</span>`:""}</div>`).join("")
+    : `<div class="none">Nothing matches “${esc(q)}”.</div>`;
+  const sel = box.querySelector(".item.on"); if (sel) sel.scrollIntoView({block:"nearest"});
+}
+function cmdkMove(d){
+  if (!cmdkItems.length) return;
+  cmdkIdx = (cmdkIdx + d + cmdkItems.length) % cmdkItems.length;
+  cmdkRender($("#cmdkInput").value);
+}
+function cmdkRun(){
+  const item = cmdkItems[cmdkIdx]; if (!item) return;
+  cmdkClose(); item.run();
+}
+$("#cmdkInput").addEventListener("input", e => { cmdkIdx = 0; cmdkRender(e.target.value); });
+$("#cmdk").addEventListener("click", e => {
+  if (e.target.id === "cmdk") return cmdkClose();
+  const it = e.target.closest(".item"); if (it){ cmdkIdx = Number(it.dataset.i); cmdkRun(); }
+});
+$("#cmdkInput").addEventListener("keydown", e => {
+  if (e.key === "ArrowDown"){ e.preventDefault(); cmdkMove(1); }
+  else if (e.key === "ArrowUp"){ e.preventDefault(); cmdkMove(-1); }
+  else if (e.key === "Enter"){ e.preventDefault(); cmdkRun(); }
+});
+
 function kbHelpToggle(force){ $("#kbHelp").classList.toggle("on", force); }
 $("#kbHelp").addEventListener("click",e=>{ if(e.target.id==="kbHelp") kbHelpToggle(false); });
 function isTyping(){ const t=document.activeElement; return t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName); }
@@ -1598,9 +1754,14 @@ function setSearch(v){ $("#search").value=v; search=v.trim(); renderActive(); }
 
 document.addEventListener("keydown",e=>{
   // Cmd/Ctrl+K works even mid-typing — it's the chord you reach for when you forget the rest.
-  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); kbHelpToggle(); return; }
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){
+    e.preventDefault();
+    $("#cmdk").classList.contains("on") ? cmdkClose() : cmdkOpen();
+    return;
+  }
 
   if(e.key==="Escape"){                                    // unwind the innermost thing first
+    if($("#cmdk").classList.contains("on")) return cmdkClose();
     if($("#kbHelp").classList.contains("on")) return kbHelpToggle(false);
     if($("#scrim").classList.contains("on")) return closeTo();
     if(isTyping()){
@@ -1620,9 +1781,22 @@ document.addEventListener("keydown",e=>{
     return;
   }
   if(e.metaKey||e.ctrlKey||e.altKey) return;               // never steal other chords
+  if($("#cmdk").classList.contains("on")) return;          // palette owns its own keys
   if($("#kbHelp").classList.contains("on")) return;        // help card open → only Esc/⌘K above
-  if($("#scrim").classList.contains("on")) return;         // modal open → don't navigate behind it
   if(isTyping()) return;                                   // don't hijack typing in fields
+
+  // With a card open, bare letters have no other job — search isn't focused —
+  // so the verdict keys live here, where you're looking at the person.
+  if($("#scrim").classList.contains("on")){
+    const key = e.key.toLowerCase();
+    const map = { r:"relevant", m:"maybe", n:"not", d:"dupe" };
+    if (detailId && map[key]){
+      e.preventDefault();
+      const cur = relOf(CONTACTS.find(x=>x.id===detailId)||{});
+      setRelevance(detailId, cur === map[key] ? "" : map[key]);
+    }
+    return;                                                 // modal open → don't navigate behind it
+  }
 
   switch(e.key){
     case "/": e.preventDefault(); $("#search").focus(); $("#search").select(); break;
