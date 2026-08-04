@@ -1296,7 +1296,20 @@ async function openDetail(id){
       </div>
       <div id="emailGuesses" class="guess-list"></div>
     </div>` : "";
-  const notesRow = `<div class="row"><div><textarea id="dNotes" placeholder="Anything worth remembering about them…">${esc(c.notes)}</textarea></div></div>`;
+  // Notes accumulate one at a time and keep their date. A single box meant
+  // every new thought had to be wedged into the same paragraph as the last.
+  const noteHist = hist.filter(i => i.channel === "note");
+  const notesRow = `
+    <div class="row" style="margin:0 0 8px">
+      <div style="flex:1"><input id="noteAdd" placeholder="Add a note…"></div>
+      <button class="btn" id="noteAddBtn">Add</button>
+    </div>
+    ${noteHist.length ? `<div class="tl">${noteHist.map(n => `
+      <div class="tlItem it note">
+        <div class="tlDate">${esc(n.occurredAt.slice(0,10))}</div>
+        <div class="tlText">${esc(n.summary)}</div>
+      </div>`).join("")}</div>` : `<div class="empty">No notes yet.</div>`}
+    ${c.notes ? `<div class="sub" style="margin-top:10px"><b>Background:</b> ${esc(c.notes)}</div>` : ""}`;
   // One timeline instead of a bin per channel: what happened to this person,
   // newest first, with the pending follow-up sitting at the top as the only
   // thing that hasn't happened yet.
@@ -1410,6 +1423,7 @@ async function openDetail(id){
       <div><label>ICP</label><select class="field" id="dIcp"><option value="">— none —</option>${["dev","biz"].map(s=>`<option ${s===icp?"selected":""}>${s}</option>`).join("")}</select></div>
       <div><label>Circle</label><select class="field" id="dCircle"><option value="">— none —</option>${["1","2","3"].map(s=>`<option ${s===circle?"selected":""}>${s}</option>`).join("")}</select></div>
     </div>
+    <div class="row"><div><label>Background <span style="color:var(--faint);font-weight:400">— the standing description, not a dated note</span></label><textarea id="dNotes" placeholder="Who they are, how you know them…">${esc(c.notes)}</textarea></div></div>
     <div class="row"><div><label>Other tags (comma-sep)</label><input id="dTags" value="${esc(freeTags(c).join(", "))}"></div></div>
     ${LISTS.length?`<div class="row"><div><label>Lists</label><div id="dLists" style="display:flex;flex-wrap:wrap;gap:10px">
       ${LISTS.map(l=>`<label class="toggle" style="font-weight:500;color:var(--text)"><input type="checkbox" class="dList" value="${l.id}" ${listIdsOf(c).includes(l.id)?"checked":""}> ${esc(l.name)}</label>`).join("")}
@@ -1418,7 +1432,6 @@ async function openDetail(id){
       <div><label>Next follow-up</label><input type="date" id="dNext" value="${c.followUpAt?c.followUpAt.slice(0,10):""}"></div>
       <div><label>About</label><input id="dNextNote" value="${esc(c.followUpNote)}"></div>
     </div>`}
-    ${id?"":`<div class="row"><div><label>Notes</label><textarea id="dNotes">${esc(c.notes)}</textarea></div></div>`}
     <div class="actions">
       ${id?`<button class="btn danger" id="delBtn">Delete</button>`:""}
       <div class="grow"></div>
@@ -1426,7 +1439,11 @@ async function openDetail(id){
       <button class="btn" id="saveBtn">Save</button>
     </div>${id?`</div></div>`:""}`;
   $("#saveBtn").onclick = saveDetail;
-  if (id){ $("#delBtn").onclick = ()=>delContact(id); $("#logBtn").onclick = ()=>logInteraction(id); }
+  if (id){
+    $("#delBtn").onclick = ()=>delContact(id); $("#logBtn").onclick = ()=>logInteraction(id);
+    $("#noteAddBtn").onclick = ()=>addNote(id);
+    $("#noteAdd").addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); addNote(id); } });
+  }
   if (id){
     $("#cardNav").addEventListener("click",(e)=>{
       const a = e.target.closest("a[data-sec]"); if(!a) return;
@@ -1633,6 +1650,14 @@ async function setFollowUp(id, date){
     if (act) act.className = "nextAct " + (date ? nextClass(date) : "");
     refreshCounts(); renderActive();
     toast(date ? `Follow-up ${date} · ${fuLabel(date)}` : "Follow-up cleared");
+  } catch(e){ toast("Error: "+e.message); }
+}
+async function addNote(id){
+  const el = $("#noteAdd"); const text = el.value.trim();
+  if (!text){ toast("Write the note first"); return; }
+  try {
+    await api(`/contacts/${id}/interactions`,{method:"POST",body:JSON.stringify({channel:"note",summary:text})});
+    await load(); openDetail(id); toast("Note added");
   } catch(e){ toast("Error: "+e.message); }
 }
 async function logInteraction(id){
