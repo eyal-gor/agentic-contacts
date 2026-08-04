@@ -293,16 +293,31 @@
   .hist { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
   /* Identity fields in the card header: they read as text and reveal
      themselves as editable under the cursor, so the header is the editor. */
-  .idField { border: 0; background: transparent; margin: 0; padding: 2px 6px; border-radius: 6px;
-    width: 100%; color: var(--text); transition: background .12s, box-shadow .12s; }
-  .idField:hover { background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px var(--border); }
-  .idField:focus { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent); outline: none; }
-  html[data-theme="light"] .idField:hover { background: rgba(0,0,0,.045); }
-  .idName { font-size: 19px; font-weight: 600; }
-  .idRow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 1px; }
+  /* These have to out-rank the global input rule, hence .modal input.… */
+  .modal input.idField, .modal textarea.inlineVal, .modal input.inlineVal, .modal select.inlineVal {
+    border: 0; background: transparent; margin: 0; padding: 2px 6px; border-radius: 6px;
+    box-shadow: none; color: var(--text); transition: background .12s, box-shadow .12s; }
+  .modal input.idField:hover, .modal .inlineVal:hover {
+    background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px var(--border); }
+  .modal input.idField:focus, .modal .inlineVal:focus {
+    background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent); outline: none; }
+  html[data-theme="light"] .modal input.idField:hover,
+  html[data-theme="light"] .modal .inlineVal:hover { background: rgba(0,0,0,.045); }
+  .modal input.idName { font-size: 19px; font-weight: 600; width: 100%; }
+  .idRow { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-top: 1px; }
   .idRow .sep { color: var(--faint); }
-  .idRow .idField { width: auto; min-width: 90px; font-size: 12.5px; color: var(--muted); }
-  .idRow .idEmail { min-width: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .modal .idRow input.idField { width: auto; flex: 0 1 auto; font-size: 12.5px; color: var(--muted); }
+  .modal .idRow input.idTitle { min-width: 150px; }
+  .modal .idRow input.idCompany { min-width: 120px; }
+  .modal .idRow input.idEmail { min-width: 210px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  /* Details as a compact label/value grid, every value editable in place */
+  .dGrid { display: grid; grid-template-columns: 92px 1fr; gap: 2px 10px; align-items: center; }
+  .dGrid > .k { font-size: 11.5px; color: var(--faint); text-align: right; padding: 4px 0; }
+  .dGrid > .v { min-width: 0; }
+  .modal .dGrid .inlineVal { width: 100%; font-size: 13px; }
+  .modal .dGrid textarea.inlineVal { min-height: 54px; resize: vertical; line-height: 1.5; }
+  .dGrid .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 3px 0; }
+  .dGrid .chips label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
   .idLink { font-size: 11.5px; font-weight: 600; color: var(--muted); text-decoration: none;
     padding: 3px 7px; border-radius: 5px; border: 1px solid var(--border); white-space: nowrap; }
   .idLink:hover { color: var(--accent); border-color: var(--accent); }
@@ -1366,9 +1381,9 @@ async function openDetail(id){
         <!-- Identity edits itself: these are the fields, not a copy of them. -->
         <input id="dName" class="idField idName" value="${esc(c.name)}" placeholder="Name">
         <div class="idRow">
-          <input id="dTitle" class="idField" value="${esc(c.title)}" placeholder="Title">
+          <input id="dTitle" class="idField idTitle" value="${esc(c.title)}" placeholder="Title">
           <span class="sep">·</span>
-          <input id="dCompany" class="idField" value="${esc(c.company)}" placeholder="Company">
+          <input id="dCompany" class="idField idCompany" value="${esc(c.company)}" placeholder="Company">
         </div>
         <div class="idRow">
           <input id="dEmails" class="idField idEmail" value="${esc((c.emails||[]).join(", "))}" placeholder="email@company.com">
@@ -1406,10 +1421,6 @@ async function openDetail(id){
       <div><label>Title</label><input id="dTitle" value="${esc(c.title)}"></div>
       <div><label>Emails (comma-sep)</label><input id="dEmails" value="${esc((c.emails||[]).join(", "))}"></div>
     </div>`}
-    <div class="row">
-      <div><label>LinkedIn${c.linkedin?` · <a href="${esc(c.linkedin)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">open ↗</a>`:""} · <a href="${liSearch}" target="_blank" rel="noopener" style="color:var(--muted);font-weight:600">search ⌕</a></label><input id="dLinkedin" value="${esc(c.linkedin)}"></div>
-    </div>
-    <div class="row"><div><label>Phones (comma-sep)</label><input id="dPhones" value="${esc((c.phones||[]).join(", "))}"></div></div>
     ${id?"":`<div class="row"><div>
       <label>Guess email <span style="color:var(--faint);font-weight:400">— pick one to fill the field</span></label>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:7px">
@@ -1418,27 +1429,57 @@ async function openDetail(id){
       </div>
       <div id="emailGuesses" class="guess-list"></div>
     </div></div>`}
-    <div class="row">
-      <div><label>Stage</label><select class="field" id="dStage"><option value="">— none —</option>${STAGES.map(s=>`<option ${s===stage?"selected":""}>${s}</option>`).join("")}</select></div>
-      <div><label>ICP</label><select class="field" id="dIcp"><option value="">— none —</option>${["dev","biz"].map(s=>`<option ${s===icp?"selected":""}>${s}</option>`).join("")}</select></div>
-      <div><label>Circle</label><select class="field" id="dCircle"><option value="">— none —</option>${["1","2","3"].map(s=>`<option ${s===circle?"selected":""}>${s}</option>`).join("")}</select></div>
+    <!-- Label/value rows: the fields are the values, so there's nothing to
+         "open for editing" and nothing to Save. -->
+    <div class="dGrid">
+      <div class="k">LinkedIn</div>
+      <div class="v" style="display:flex;align-items:center;gap:6px">
+        <input id="dLinkedin" class="inlineVal" value="${esc(c.linkedin)}" placeholder="linkedin.com/in/…">
+        ${c.linkedin?`<a class="idLink" href="${esc(c.linkedin)}" target="_blank" rel="noopener">open ↗</a>`
+                    :`<a class="idLink" href="${liSearch}" target="_blank" rel="noopener">search ⌕</a>`}
+      </div>
+      <div class="k">Phones</div>
+      <div class="v"><input id="dPhones" class="inlineVal" value="${esc((c.phones||[]).join(", "))}" placeholder="+972…, +1…"></div>
+      <div class="k">Stage</div>
+      <div class="v"><select class="inlineVal" id="dStage"><option value="">— none —</option>${STAGES.map(s=>`<option ${s===stage?"selected":""}>${s}</option>`).join("")}</select></div>
+      <div class="k">ICP</div>
+      <div class="v"><select class="inlineVal" id="dIcp"><option value="">— none —</option>${["dev","biz"].map(s=>`<option ${s===icp?"selected":""}>${s}</option>`).join("")}</select></div>
+      <div class="k">Circle</div>
+      <div class="v"><select class="inlineVal" id="dCircle"><option value="">— none —</option>${["1","2","3"].map(s=>`<option ${s===circle?"selected":""}>${s}</option>`).join("")}</select></div>
+      <div class="k">Tags</div>
+      <div class="v"><input id="dTags" class="inlineVal" value="${esc(freeTags(c).join(", "))}" placeholder="comma-separated"></div>
+      ${LISTS.length?`<div class="k">Lists</div>
+      <div class="v"><div class="chips" id="dLists">
+        ${LISTS.map(l=>`<label><input type="checkbox" class="dList" value="${l.id}" ${listIdsOf(c).includes(l.id)?"checked":""}> ${esc(l.name)}</label>`).join("")}
+      </div></div>`:""}
+      <div class="k">Background</div>
+      <div class="v"><textarea id="dNotes" class="inlineVal" placeholder="Who they are, how you know them…">${esc(c.notes)}</textarea></div>
+      ${id?"":`
+      <div class="k">Next follow-up</div>
+      <div class="v"><input type="date" id="dNext" class="inlineVal" value="${c.followUpAt?c.followUpAt.slice(0,10):""}"></div>
+      <div class="k">About</div>
+      <div class="v"><input id="dNextNote" class="inlineVal" value="${esc(c.followUpNote)}"></div>`}
     </div>
-    <div class="row"><div><label>Background <span style="color:var(--faint);font-weight:400">— the standing description, not a dated note</span></label><textarea id="dNotes" placeholder="Who they are, how you know them…">${esc(c.notes)}</textarea></div></div>
-    <div class="row"><div><label>Other tags (comma-sep)</label><input id="dTags" value="${esc(freeTags(c).join(", "))}"></div></div>
-    ${LISTS.length?`<div class="row"><div><label>Lists</label><div id="dLists" style="display:flex;flex-wrap:wrap;gap:10px">
-      ${LISTS.map(l=>`<label class="toggle" style="font-weight:500;color:var(--text)"><input type="checkbox" class="dList" value="${l.id}" ${listIdsOf(c).includes(l.id)?"checked":""}> ${esc(l.name)}</label>`).join("")}
-    </div></div></div>`:""}
-    ${id?"":`<div class="row">
-      <div><label>Next follow-up</label><input type="date" id="dNext" value="${c.followUpAt?c.followUpAt.slice(0,10):""}"></div>
-      <div><label>About</label><input id="dNextNote" value="${esc(c.followUpNote)}"></div>
-    </div>`}
     <div class="actions">
       ${id?`<button class="btn danger" id="delBtn">Delete</button>`:""}
       <div class="grow"></div>
+      ${id?`<span class="sub" style="margin:0;color:var(--faint)">Changes save as you make them</span>`:""}
       <button class="btn ghost" onclick="closeTo()">Close</button>
-      <button class="btn" id="saveBtn">Save</button>
+      ${id?"":`<button class="btn" id="saveBtn">Save</button>`}
     </div>${id?`</div></div>`:""}`;
-  $("#saveBtn").onclick = saveDetail;
+  if ($("#saveBtn")) $("#saveBtn").onclick = saveDetail;
+  if (id){
+    // Every detail field writes itself; there is no Save on an existing card.
+    for (const f of ["dLinkedin","dPhones","dTags","dNotes"]){
+      const n = $("#"+f); if (!n) continue;
+      n.addEventListener("blur", () => saveDetail({ keepOpen:true }));
+    }
+    for (const f of ["dStage","dIcp","dCircle"]){
+      const n = $("#"+f); if (n) n.addEventListener("change", () => saveDetail({ keepOpen:true }));
+    }
+    document.querySelectorAll("#modal .dList").forEach(n =>
+      n.addEventListener("change", () => saveDetail({ keepOpen:true })));
+  }
   if (id){
     $("#delBtn").onclick = ()=>delContact(id); $("#logBtn").onclick = ()=>logInteraction(id);
     $("#noteAddBtn").onclick = ()=>addNote(id);
@@ -1564,7 +1605,10 @@ function renderEmailGuesses(){
   box.querySelectorAll("[data-email]").forEach(b=>b.onclick=()=>{ $("#dEmails").value = b.dataset.email; toast("Email set — Save to keep"); });
 }
 
-async function saveDetail(){
+// keepOpen: an inline edit — write it and stay put, rather than closing the
+// card and jumping back to the list the way an explicit Save does.
+async function saveDetail(opts){
+  const keepOpen = opts && opts.keepOpen === true;
   const v = s => ($("#"+s) ? $("#"+s).value.trim() : "");
   const arr = s => v(s).split(",").map(x=>x.trim()).filter(Boolean);
   const stage = $("#dStage").value, icp = $("#dIcp").value, circle = $("#dCircle").value;
@@ -1584,6 +1628,12 @@ async function saveDetail(){
   try {
     if (detailId) await api(`/contacts/${detailId}`,{method:"PATCH",body:JSON.stringify(body)});
     else await api(`/contacts`,{method:"POST",body:JSON.stringify(body)});
+    if (keepOpen){
+      const rec = CONTACTS.find(x=>x.id===detailId);
+      if (rec) Object.assign(rec, body);
+      refreshCounts(); renderActive(); toast("Saved");
+      return;
+    }
     await load(); location.hash = "#"+view; toast("Saved");
   } catch(e){ toast("Error: "+e.message); }
 }
