@@ -5,6 +5,7 @@ import { companiesRoute } from "./routes/companies.js";
 import * as store from "./store.js";
 import * as interactions from "./interactions.js";
 import { requireApiKey } from "./auth.js";
+import { mcp } from "./mcp.js";
 import type { Env } from "./db.js";
 
 /**
@@ -25,6 +26,7 @@ const app = new Hono<{ Bindings: Env }>();
 app.get("/health", (c) => c.json({ status: "ok" }));
 
 app.route("/contacts", contacts);
+app.route("/mcp", mcp);
 app.route("/companies", companiesRoute);
 app.route("/lists", listsRoute);
 
