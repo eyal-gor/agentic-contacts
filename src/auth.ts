@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import type { Env } from "./db.js";
+import { verifyMintedKey, stampUsage } from "./keys.js";
 
 /**
  * Single-key bearer auth — MANDATORY.
@@ -17,8 +18,13 @@ export const requireApiKey: MiddlewareHandler<{ Bindings: Env }> = async (c, nex
     return c.json({ error: "server misconfigured: API_KEY is not set" }, 500);
   }
   const bearer = (c.req.header("Authorization") ?? "").replace(/^Bearer /, "");
-  if (bearer === expected) return next();                     // machines: the API key
+  if (bearer === expected) return next();                     // machines: the env key
   if (await verifySession(c.env, bearer)) return next();      // humans: a login session
+  const minted = await verifyMintedKey(c.env, bearer);        // machines: a minted key
+  if (minted) {
+    c.executionCtx.waitUntil(stampUsage(c.env, minted));
+    return next();
+  }
   return c.json({ error: "unauthorized" }, 401);
 };
 

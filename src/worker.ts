@@ -6,6 +6,7 @@ import * as store from "./store.js";
 import * as interactions from "./interactions.js";
 import { requireApiKey, issueSession } from "./auth.js";
 import { mcp } from "./mcp.js";
+import * as keys from "./keys.js";
 import type { Env } from "./db.js";
 
 /**
@@ -41,6 +42,20 @@ app.route("/contacts", contacts);
 app.route("/mcp", mcp);
 app.route("/companies", companiesRoute);
 app.route("/lists", listsRoute);
+
+// Key management, backing the Settings screen. Minting returns the plaintext
+// exactly once; after that only the hash exists.
+app.get("/keys", requireApiKey, async (c) => c.json({ keys: await keys.listKeys(c.env) }));
+app.post("/keys", requireApiKey, async (c) => {
+  const { name } = (await c.req.json().catch(() => ({}))) as { name?: string };
+  if (!name?.trim()) return c.json({ error: "name is required" }, 400);
+  const { row, key } = await keys.mintKey(c.env, name.trim());
+  return c.json({ ...row, key }, 201);
+});
+app.delete("/keys/:id", requireApiKey, async (c) => {
+  const ok = await keys.revokeKey(c.env, c.req.param("id"));
+  return ok ? c.json({ revoked: true }) : c.json({ error: "no such active key" }, 404);
+});
 
 // Calendar feed: a flat, dated event stream across all contacts —
 // interactions (when someone was contacted), the "added" event (contact

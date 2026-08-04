@@ -328,6 +328,7 @@
       <button data-view="calendar">Calendar</button>
       <button data-view="pipeline">Pipeline</button>
       <button data-view="lists">Lists</button>
+      <button data-view="settings">Settings</button>
     </nav>
     <div class="nav" style="margin-top:auto">
       <a class="extLink" href="https://polenta.ai" target="_blank" rel="noopener">Polenta ↗</a>
@@ -345,6 +346,20 @@
       <button class="btn" id="newBtn">+ New</button>
       <button class="btn ghost" id="refresh">Refresh</button>
     </header>
+
+    <!-- SETTINGS VIEW: credentials — mint and revoke machine keys -->
+    <section id="viewSettings" class="scroll hide">
+      <div class="toolbar"><span class="cal-title">Settings</span></div>
+      <div class="side-label" style="padding:8px 0 4px">API keys</div>
+      <p class="sub" style="max-width:560px">Apps read and write with a key; you sign in with the password.
+        A key is shown once when minted — copy it then. Revoking cuts the app off immediately.</p>
+      <div style="display:flex;gap:8px;max-width:460px;margin:6px 0 10px">
+        <input id="newKeyName" placeholder="Key name — which app is this for?" style="flex:1">
+        <button class="btn" id="mintBtn">Mint key</button>
+      </div>
+      <div id="mintedBox"></div>
+      <div id="keysList" class="clist"></div>
+    </section>
 
     <!-- TODAY VIEW: the answer to "who should I contact today", in priority order -->
     <section id="viewToday" class="scroll hide">
@@ -605,6 +620,7 @@ function rebuildCompanyFilters(){
 }
 
 function renderActive(){
+  if (view === "settings") return renderSettings();
   if (view === "today") return renderToday();
   if (view === "pipeline") return renderPipeline();
   if (view === "lists") return renderLists();
@@ -664,6 +680,44 @@ function renderToday(){
   if (!box.children.length) box.innerHTML = `<div class="empty">Clear. Nothing due, nothing overdue, every deal has a next step.</div>`;
   $("#todayStat").textContent = `${q.o.length} overdue · ${q.d.length} due · ${q.s.length} adrift`;
   $("#stat").textContent = "";
+}
+
+/* ---------- Settings view ---------- */
+async function renderSettings(){
+  const box = $("#keysList");
+  box.innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    const { keys } = await api("/keys");
+    box.innerHTML = keys.length ? "" : `<div class="empty">No minted keys yet. The legacy shared key (in the project .env / Secrets Store) still works but isn't listed here — mint named keys and retire it.</div>`;
+    for (const k of keys){
+      const el = document.createElement("div"); el.className = "crow"; el.style.cursor = "default";
+      el.innerHTML = `
+        <div><span class="nm">${esc(k.name)}</span> <span class="co">· <code style="font-size:11px">${esc(k.prefix)}</code></span></div>
+        <div class="meta">minted ${k.createdAt.slice(0,10)} · ${k.lastUsedAt?`last used ${k.lastUsedAt.slice(0,10)}`:"never used"}</div>
+        <div>${k.revokedAt?`<span class="pill next over">revoked ${k.revokedAt.slice(0,10)}</span>`:`<button class="btn danger" data-revoke="${k.id}">Revoke</button>`}</div>`;
+      box.appendChild(el);
+    }
+  } catch(e){ box.innerHTML = `<div class="empty">Couldn't load keys: ${esc(e.message)}</div>`; }
+  $("#stat").textContent = "";
+}
+async function mintKey(){
+  const name = $("#newKeyName").value.trim();
+  if (!name){ toast("Name the key — which app is it for?"); return; }
+  const r = await api("/keys",{method:"POST",body:JSON.stringify({name})});
+  $("#newKeyName").value = "";
+  $("#mintedBox").innerHTML = `
+    <div class="toolbar" style="background:var(--elevated);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="sub" style="margin:0">New key for <b>${esc(r.name)}</b> — copy it now, it won't be shown again:</span>
+      <code id="mintedKey" style="font-size:12px;user-select:all">${esc(r.key)}</code>
+      <button class="btn ghost" id="copyKeyBtn">Copy</button>
+    </div>`;
+  $("#copyKeyBtn").onclick = async ()=>{ await navigator.clipboard.writeText(r.key); toast("Copied"); };
+  renderSettings();
+}
+async function revokeApiKey(id){
+  if (!confirm("Revoke this key? The app using it loses access immediately.")) return;
+  await api(`/keys/${id}`,{method:"DELETE"});
+  toast("Revoked"); renderSettings();
 }
 
 /* ---------- Contacts view ---------- */
@@ -1307,7 +1361,7 @@ function applyRoute(){
   }
   if ($("#scrim").classList.contains("on")) closeModal();    // any view route closes an open modal
   if (seg === "list" && arg){ listFilter = arg; showView("contacts"); return; }
-  const v = ["today","pipeline","lists","calendar","outreach","contacts","companies"].includes(seg) ? seg : "today";
+  const v = ["today","pipeline","lists","calendar","outreach","contacts","companies","settings"].includes(seg) ? seg : "today";
   showView(v);
 }
 // close the modal by navigating back to the current view's URL
@@ -1351,6 +1405,7 @@ window.addEventListener("hashchange", applyRoute);
 function showView(v){
   view=v; selIdx=-1;
   $("#viewToday").classList.toggle("hide",v!=="today");
+  $("#viewSettings").classList.toggle("hide",v!=="settings");
   $("#viewContacts").classList.toggle("hide",v!=="contacts");
   $("#viewCompanies").classList.toggle("hide",v!=="companies");
   $("#viewOutreach").classList.toggle("hide",v!=="outreach");
@@ -1378,6 +1433,9 @@ $("#newListBtn").addEventListener("click",newList);
 $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.hash="#contacts"; });
 $("#refresh").addEventListener("click",load);
 $("#loginBtn").addEventListener("click",doLogin);
+$("#mintBtn").addEventListener("click",mintKey);
+$("#newKeyName").addEventListener("keydown",e=>{ if(e.key==="Enter") mintKey(); });
+$("#keysList").addEventListener("click",e=>{ const b=e.target.closest("[data-revoke]"); if(b) revokeApiKey(b.dataset.revoke); });
 $("#signOutBtn").addEventListener("click",()=>{
   try { localStorage.removeItem(KEY_STORAGE); } catch {}
   location.reload();   // next load 401s → sign-in card
