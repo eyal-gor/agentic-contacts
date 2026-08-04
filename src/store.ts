@@ -20,6 +20,7 @@ function rowToContact(row: Record<string, unknown>): Contact {
     notes: (row.notes as string) ?? undefined,
     linkedin: (row.linkedin as string) ?? undefined,
     image: (row.image as string) ?? undefined,
+    draft: (row.draft as string) ?? undefined,
     followUpAt: (row.followUpAt as string) ?? null,
     followUpNote: (row.followUpNote as string) ?? null,
     addedBy: (row.addedBy as string) ?? undefined,
@@ -70,8 +71,8 @@ export async function create(db: D1Database, input: ContactInputT): Promise<Cont
   await db
     .prepare(
       `INSERT INTO contacts
-        (id, name, emails, phones, companyId, company, title, tags, notes, linkedin, image, followUpAt, followUpNote, addedBy, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, name, emails, phones, companyId, company, title, tags, notes, linkedin, image, draft, followUpAt, followUpNote, addedBy, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       contact.id,
@@ -85,6 +86,7 @@ export async function create(db: D1Database, input: ContactInputT): Promise<Cont
       contact.notes ?? null,
       contact.linkedin ?? null,
       contact.image ?? null,
+      contact.draft ?? null,
       contact.followUpAt ?? null,
       contact.followUpNote ?? null,
       contact.addedBy ?? null,

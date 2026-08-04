@@ -15,6 +15,9 @@ export const ContactInput = z.object({
   // Photo: a small data URL (the UI downscales before saving) or an https URL.
   // nullable so a PATCH can remove it.
   image: z.string().nullable().optional(),
+  // The message queued for this person, written ahead of time by whoever or
+  // whatever prepares the day. Cleared when it's sent.
+  draft: z.string().nullable().optional(),
   // "Next talk" reminder: when to next reach out, and what about.
   // nullable so a PATCH can clear it by sending null.
   followUpAt: z.string().nullable().optional(),

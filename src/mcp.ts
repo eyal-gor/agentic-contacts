@@ -38,6 +38,7 @@ function card(c: Contact) {
     followUpAt: c.followUpAt,
     followUpNote: c.followUpNote,
     notes: c.notes,
+    draft: c.draft,
   };
 }
 
@@ -122,6 +123,19 @@ const TOOLS = [
     },
   },
   {
+    name: "set_draft",
+    description:
+      "Write the message queued for this person — the one the daily queue shows with a copy button. Read the contact's history and notes first: a draft that could have been sent to anyone is worse than none. Pass an empty string to clear it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string" },
+        draft: { type: "string", description: "The message text, ready to send" },
+      },
+      required: ["contactId", "draft"],
+    },
+  },
+  {
     name: "who_to_contact_today",
     description:
       "The daily queue, same tiers as the app's Today view: follow-ups overdue, follow-ups due today, and pipeline contacts with no next step set.",
@@ -179,7 +193,7 @@ async function callTool(env: Env, name: string, args: any): Promise<unknown> {
       const id = String(args?.id ?? "");
       const allowed = [
         "name", "emails", "phones", "company", "title", "tags",
-        "notes", "linkedin", "followUpAt", "followUpNote",
+        "notes", "linkedin", "followUpAt", "followUpNote", "draft",
       ];
       const patch: Record<string, unknown> = {};
       for (const k of allowed) if (k in (args ?? {})) patch[k] = args[k];
@@ -187,6 +201,13 @@ async function callTool(env: Env, name: string, args: any): Promise<unknown> {
       const c = await store.update(db, id, patch as ContactPatchT);
       if (!c) throw new Error(`no contact with id ${id}`);
       return c;
+    }
+    case "set_draft": {
+      const id = String(args?.contactId ?? "");
+      const text = String(args?.draft ?? "");
+      const c = await store.update(db, id, { draft: text.trim() || null });
+      if (!c) throw new Error(`no contact with id ${id}`);
+      return { id: c.id, name: c.name, draft: c.draft };
     }
     case "who_to_contact_today": {
       const today = new Date().toISOString().slice(0, 10);

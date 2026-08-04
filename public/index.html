@@ -62,6 +62,16 @@
   .setRow .act { flex: 0 0 auto; margin-left: auto; }
   .setWrap .today-h { margin: 20px 2px 2px; }
   .setWrap .today-h:first-child { margin-top: 6px; }
+  /* A queued message, shown with the person it's for */
+  .todayItem { border-bottom: 1px solid var(--border-soft); }
+  .todayItem .crow { border-bottom: 0; }
+  .draftBox { padding: 0 12px 12px 52px; }
+  .draftBox .draftText { width: 100%; min-height: 76px; font-size: 12.5px; line-height: 1.55;
+    resize: vertical; margin: 0 0 6px; }
+  .draftActions { display: flex; gap: 6px; align-items: center; }
+  .draftActions .btn { padding: 4px 10px; font-size: 11.5px; }
+  .pill.draftPill { background: rgba(94,106,210,.18); color: #a6adf0; }
+  html[data-theme="light"] .pill.draftPill { background: rgba(94,106,210,.14); color: #4650b0; }
   /* Today view: group headers and the reason a row is in the queue */
   .today-h { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); margin: 16px 2px 6px; }
   .today-h:first-child { margin-top: 4px; }
@@ -782,11 +792,33 @@ function todayRow(c, why, cls){
   const who = [c.title, c.company].filter(Boolean).join(" · ");
   el.innerHTML = `
     <div style="display:flex;gap:10px;align-items:center;min-width:0">${avatarHtml(c,30)}<div style="min-width:0"><span class="nm">${esc(c.name)}</span>${who?` <span class="co">· ${esc(who)}</span>`:""}</div></div>
-    <div class="tags">${relPill(c)}${st?`<span class="pill stage">${st}</span>`:""}</div>
+    <div class="tags">${relPill(c)}${st?`<span class="pill stage">${st}</span>`:""}${c.draft?`<span class="pill draftPill">draft ready</span>`:""}</div>
     <div class="meta"><span class="pill next ${cls||""}">${esc(why)}</span>
       ${lastDate(c)?` · last ${lastDate(c)}`:" · never talked"}</div>`;
   el.addEventListener("click", ()=>{ location.hash = "#c/"+c.id; });
-  return el;
+  if (!c.draft) return el;
+  // The message sits with the person it's for, so the morning is read-copy-send
+  // rather than open-card, hunt, copy, come back.
+  const box = document.createElement("div"); box.className = "draftBox";
+  box.innerHTML = `
+    <textarea class="draftText" spellcheck="false">${esc(c.draft)}</textarea>
+    <div class="draftActions">
+      <button class="btn ghost" data-copy>Copy</button>
+      <button class="btn ghost" data-savedraft>Save edit</button>
+      <div class="grow"></div>
+      <button class="btn" data-sent>Sent ✓</button>
+    </div>`;
+  box.addEventListener("click", e => e.stopPropagation());   // the row opens the card; this doesn't
+  const text = () => box.querySelector(".draftText").value;
+  box.querySelector("[data-copy]").onclick = async e => {
+    await navigator.clipboard.writeText(deDash(text()));
+    e.target.textContent = "Copied ✓"; setTimeout(()=>e.target.textContent="Copy", 1400);
+  };
+  box.querySelector("[data-savedraft]").onclick = () => saveDraft(c.id, text());
+  box.querySelector("[data-sent]").onclick = () => sendDraft(c.id, text());
+  const wrap = document.createElement("div"); wrap.className = "todayItem";
+  wrap.appendChild(el); wrap.appendChild(box);
+  return wrap;
 }
 function todayGroups(){
   const today = new Date().toISOString().slice(0,10);
@@ -1646,6 +1678,32 @@ async function delContact(id){
   if (!confirm("Delete this contact and its history?")) return;
   await api(`/contacts/${id}`,{method:"DELETE"}); await load(); location.hash = "#"+view; toast("Deleted");
 }
+/* ---------- queued drafts ---------- */
+async function saveDraft(id, text){
+  try {
+    await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({draft: deDash(text).trim() || null})});
+    const c = CONTACTS.find(x=>x.id===id); if (c) c.draft = deDash(text).trim() || null;
+    toast("Draft saved");
+  } catch(e){ toast("Error: "+e.message); }
+}
+// Sending is the moment the record changes: the touch is logged, the draft is
+// spent, and the next date is set — otherwise it's a message with no memory.
+async function sendDraft(id, text){
+  const c = CONTACTS.find(x=>x.id===id); if(!c) return;
+  const msg = deDash(text).trim();
+  try {
+    await api(`/contacts/${id}/interactions`,{method:"POST",body:JSON.stringify({
+      channel: "message",
+      summary: `Sent: ${msg.slice(0,140)}${msg.length>140?"…":""}`,
+    })});
+    await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({
+      draft: null, followUpAt: dateIn(7), followUpNote: `Follow up — no reply to the ${TODAY} message`,
+    })});
+    await load();
+    toast(`Sent to ${c.name} · follow-up in 7 days`);
+  } catch(e){ toast("Error: "+e.message); }
+}
+
 /* ---------- relevance verdicts ---------- */
 // Saves on the spot, like the follow-up: a verdict you must remember to Save
 // is a verdict you don't record, and then the noise stays in the queue.
