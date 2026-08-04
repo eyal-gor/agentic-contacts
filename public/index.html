@@ -47,6 +47,14 @@
   .nav button.on { background: rgba(255,255,255,.07); color: var(--text); }
   .navCount { margin-left: auto; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
   .nav button::before { content: ""; width: 6px; height: 6px; border-radius: 2px; background: currentColor; opacity: .55; }
+  .nav a.extLink { display: flex; align-items: center; gap: 9px; color: var(--muted); font-weight: 500;
+    padding: 7px 9px; border-radius: 6px; text-decoration: none; transition: background .1s, color .1s; }
+  .nav a.extLink:hover { background: rgba(255,255,255,.04); color: var(--text); }
+  html[data-theme="light"] .nav a.extLink:hover { background: rgba(0,0,0,.04); }
+  /* Today view: group headers and the reason a row is in the queue */
+  .today-h { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); margin: 16px 2px 6px; }
+  .today-h:first-child { margin-top: 4px; }
+  .brief { font-size: 12.5px; color: var(--muted); margin: -6px 0 10px; line-height: 1.5; }
   .side-label { color: var(--faint); font-size: 11px; font-weight: 500; text-transform: uppercase;
     letter-spacing: .06em; padding: 16px 9px 6px; }
 
@@ -299,7 +307,8 @@
     <div class="brand"><div class="ws-badge">A</div><div class="ws-name">Agentic Contacts</div></div>
     <div class="side-label">Views</div>
     <nav class="nav" id="nav">
-      <button data-view="contacts" class="on">Contacts <span class="navCount" id="navContactCount"></span></button>
+      <button data-view="today" class="on">Today <span class="navCount" id="navTodayCount"></span></button>
+      <button data-view="contacts">Contacts <span class="navCount" id="navContactCount"></span></button>
       <button data-view="companies">Companies <span class="navCount" id="navCompanyCount"></span></button>
       <button data-view="outreach">Outreach today</button>
       <button data-view="calendar">Calendar</button>
@@ -307,6 +316,7 @@
       <button data-view="lists">Lists</button>
     </nav>
     <div class="nav" style="margin-top:auto">
+      <a class="extLink" href="https://polenta.ai" target="_blank" rel="noopener">Polenta ↗</a>
       <button id="themeBtn">◐ Light mode</button>
     </div>
   </aside>
@@ -320,6 +330,16 @@
       <button class="btn" id="newBtn">+ New</button>
       <button class="btn ghost" id="refresh">Refresh</button>
     </header>
+
+    <!-- TODAY VIEW: the answer to "who should I contact today", in priority order -->
+    <section id="viewToday" class="scroll hide">
+      <div class="toolbar">
+        <span class="cal-title" id="todayTitle"></span>
+        <div class="grow"></div>
+        <span id="todayStat" class="muted"></span>
+      </div>
+      <div class="clist" id="tlist"></div>
+    </section>
 
     <!-- CONTACTS VIEW -->
     <section id="viewContacts" class="scroll">
@@ -504,6 +524,9 @@ async function load(){
   CONTACTS = cs.contacts; LISTS = ls.lists; EVENTS = ev.events; COMPANIES = cos.companies || [];
   $("#navContactCount").textContent = CONTACTS.length;
   $("#navCompanyCount").textContent = COMPANIES.length;
+  // Today badge counts what demands action now — overdue + due, not the adrift tail.
+  const tg = todayGroups();
+  $("#navTodayCount").textContent = (tg.overdue.length + tg.due.length) || "";
   rebuildTagFilter(); rebuildCompanyFilters(); renderActive();
 }
 
@@ -539,12 +562,65 @@ function rebuildCompanyFilters(){
 }
 
 function renderActive(){
+  if (view === "today") return renderToday();
   if (view === "pipeline") return renderPipeline();
   if (view === "lists") return renderLists();
   if (view === "calendar") return renderCalendar();
   if (view === "outreach") return renderOutreach();
   if (view === "companies") return renderCompanies();
   renderContacts();
+}
+
+/* ---------- Today view ---------- */
+// Who to contact today, in priority order. Three tiers: follow-ups you're
+// late on, follow-ups due now, and pipeline deals with no next step — the
+// playbook's "no date = dead deal" made visible instead of silent.
+const PIPELINE_STAGES = ["lead","contacted","call","trial","proposal"];
+function todayRow(c, why, cls){
+  const el = document.createElement("div"); el.className="crow"; el.dataset.id=c.id;
+  const st = stageOf(c);
+  el.style.borderLeftColor = st ? `var(--${st})` : "var(--mut)";
+  const who = [c.title, c.company].filter(Boolean).join(" · ");
+  el.innerHTML = `
+    <div><span class="nm">${esc(c.name)}</span>${who?` <span class="co">· ${esc(who)}</span>`:""}</div>
+    <div class="tags">${st?`<span class="pill stage">${st}</span>`:""}</div>
+    <div class="meta"><span class="pill next ${cls||""}">${esc(why)}</span>
+      ${lastDate(c)?` · last ${lastDate(c)}`:" · never talked"}</div>`;
+  el.addEventListener("click", ()=>{ location.hash = "#c/"+c.id; });
+  return el;
+}
+function todayGroups(){
+  const today = new Date().toISOString().slice(0,10);
+  const cs = CONTACTS.filter(c => !(c.tags||[]).includes("do-not-contact"));
+  const fu = c => (c.followUpAt||"").slice(0,10);
+  const overdue = cs.filter(c => fu(c) && fu(c) < today)
+    .sort((a,b)=> fu(a) < fu(b) ? -1 : 1);
+  const due = cs.filter(c => fu(c) === today);
+  const drifting = cs.filter(c => !fu(c) && PIPELINE_STAGES.includes(stageOf(c)||""))
+    .sort((a,b)=> (lastDate(a)||"0") < (lastDate(b)||"0") ? -1 : 1);
+  return { today, overdue, due, drifting };
+}
+function renderToday(){
+  const { today, overdue, due, drifting } = todayGroups();
+  const q = search ? { o: overdue.filter(matchesSearch), d: due.filter(matchesSearch), s: drifting.filter(matchesSearch) }
+                   : { o: overdue, d: due, s: drifting };
+  $("#todayTitle").textContent = new Date().toLocaleDateString("en-US",{weekday:"long", month:"long", day:"numeric"});
+  const box = $("#tlist"); box.innerHTML = "";
+  const addGroup = (label, rows, mk) => {
+    if (!rows.length) return;
+    const h = document.createElement("div"); h.className = "today-h"; h.textContent = label;
+    box.appendChild(h); rows.forEach(c => box.appendChild(mk(c)));
+  };
+  addGroup(`Overdue — you owe them a touch`, q.o, c => {
+    const days = Math.floor((new Date(today) - new Date(c.followUpAt.slice(0,10)))/864e5);
+    const note = c.followUpNote ? ` — ${c.followUpNote}` : "";
+    return todayRow(c, `${days}d overdue${note}`, "over");
+  });
+  addGroup(`Due today`, q.d, c => todayRow(c, `due today${c.followUpNote?` — ${c.followUpNote}`:""}`, "soon"));
+  addGroup(`In the pipeline, no next step`, q.s, c => todayRow(c, `${stageOf(c)} — set a next step`, ""));
+  if (!box.children.length) box.innerHTML = `<div class="empty">Clear. Nothing due, nothing overdue, every deal has a next step.</div>`;
+  $("#todayStat").textContent = `${q.o.length} overdue · ${q.d.length} due · ${q.s.length} adrift`;
+  $("#stat").textContent = "";
 }
 
 /* ---------- Contacts view ---------- */
@@ -969,6 +1045,12 @@ async function openDetail(id){
     <span class="x" onclick="closeTo()">×</span>
     <h3>${id?esc(c.name):"New contact"}</h3>
     <div class="sub">${id?[c.title,c.company].filter(Boolean).map(esc).join(" · ")||"Log interactions, set follow-up, edit details":"Add someone to your contacts"}</div>
+    ${id?`<div class="brief">${[
+      stageOf(c)?`<span class="pill stage">${stageOf(c)}</span>`:"",
+      c.createdAt?`known since ${c.createdAt.slice(0,10)}`:"",
+      hist.length?`${hist.length} touch${hist.length>1?"es":""}, last ${hist[0].channel} ${hist[0].occurredAt.slice(0,10)}: “${esc(hist[0].summary.length>90?hist[0].summary.slice(0,90)+"…":hist[0].summary)}”`:"never talked",
+      c.notes?esc((c.notes.split("\n")[0]).slice(0,120)):"",
+    ].filter(Boolean).join(" · ")}</div>`:""}
     ${quickActions}
     ${logAndHist}
     <div class="row">
@@ -1087,7 +1169,7 @@ function applyRoute(){
   }
   if ($("#scrim").classList.contains("on")) closeModal();    // any view route closes an open modal
   if (seg === "list" && arg){ listFilter = arg; showView("contacts"); return; }
-  const v = ["pipeline","lists","calendar","outreach","contacts","companies"].includes(seg) ? seg : "contacts";
+  const v = ["today","pipeline","lists","calendar","outreach","contacts","companies"].includes(seg) ? seg : "today";
   showView(v);
 }
 // close the modal by navigating back to the current view's URL
@@ -1130,6 +1212,7 @@ window.addEventListener("hashchange", applyRoute);
 /* ---------- wiring ---------- */
 function showView(v){
   view=v; selIdx=-1;
+  $("#viewToday").classList.toggle("hide",v!=="today");
   $("#viewContacts").classList.toggle("hide",v!=="contacts");
   $("#viewCompanies").classList.toggle("hide",v!=="companies");
   $("#viewOutreach").classList.toggle("hide",v!=="outreach");
@@ -1158,9 +1241,10 @@ $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.has
 $("#refresh").addEventListener("click",load);
 $("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim") closeTo(); });
 /* ---------- keyboard navigation ---------- */
-const KB_VIEWS = ["contacts","companies","outreach","calendar","pipeline","lists"];
+const KB_VIEWS = ["today","contacts","companies","outreach","calendar","pipeline","lists"];
 // the highlightable rows/cards in the current list view
 function selEls(){
+  if(view==="today")    return [...document.querySelectorAll("#tlist .crow")];
   if(view==="contacts") return [...document.querySelectorAll("#clist .crow")];
   if(view==="companies") return [...document.querySelectorAll("#companyTable .company-row")];
   if(view==="outreach")  return [...document.querySelectorAll("#outList .out-card")];
