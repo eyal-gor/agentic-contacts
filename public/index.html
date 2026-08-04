@@ -1114,6 +1114,17 @@ function phoneClose(){
   $("#phoneFrame").src = "about:blank";   // tears down the softphone → hangs up
 }
 window.callWith = callWith; window.phoneClose = phoneClose;
+// Handset logs finished calls into this app's data on its own; this message
+// is just the receipt. Refresh the open modal so the new history line shows —
+// unless the user is mid-typing in it, where a rebuild would eat their text.
+window.addEventListener("message", (e)=>{
+  if (e.origin !== new URL(HANDSET_URL).origin) return;
+  const d = e.data;
+  if (!d || d.source !== "handset" || d.type !== "call-logged") return;
+  toast("Call logged to history");
+  const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if (detailId === d.contactId && !typing) openDetail(detailId);
+});
 window.addEventListener("hashchange", applyRoute);
 
 /* ---------- wiring ---------- */
