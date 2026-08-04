@@ -286,6 +286,10 @@
   .guess span { font-family: var(--mono, "SF Mono", Menlo, monospace); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
   .hist { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
+  /* Next-follow-up bar: edit the date where you read it */
+  .fuBar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 2px 0 10px; }
+  .fuBar input[type=date] { width: auto; margin: 0; }
+  .fuBar .btn { padding: 4px 9px; font-size: 11.5px; }
   .quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 12px; }
   .quick a { font-size: 12px; font-weight: 600; color: var(--text); text-decoration: none;
     background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 9px; }
@@ -598,12 +602,15 @@ function matchesCompanySearch(c){
 async function load(){
   const [cs, ls, ev, cos] = await Promise.all([api("/contacts?limit=1000"), api("/lists"), api("/events"), api("/companies?limit=1000")]);
   CONTACTS = cs.contacts; LISTS = ls.lists; EVENTS = ev.events; COMPANIES = cos.companies || [];
+  refreshCounts();
+  rebuildTagFilter(); rebuildCompanyFilters(); renderActive();
+}
+function refreshCounts(){
   $("#navContactCount").textContent = CONTACTS.length;
   $("#navCompanyCount").textContent = COMPANIES.length;
   // Today badge counts what demands action now — overdue + due, not the adrift tail.
   const tg = todayGroups();
   $("#navTodayCount").textContent = (tg.overdue.length + tg.due.length) || "";
-  rebuildTagFilter(); rebuildCompanyFilters(); renderActive();
 }
 
 function rebuildTagFilter(){
@@ -1198,7 +1205,17 @@ async function openDetail(id){
         <div style="flex:0 0 140px"><input type="date" id="logNext" title="next follow-up (optional)" value=""></div>
         <button class="btn" id="logBtn">Log</button>
       </div>
-      <div class="sub" style="margin:-4px 0 6px">${c.followUpAt?`Next follow-up: <b>${esc(c.followUpAt.slice(0,10))}</b>${c.followUpNote?` — ${esc(c.followUpNote)}`:""}`:"No follow-up set — add a date when you log, or below."}</div>
+      <!-- The next step is the thing that changes most often, so it's editable
+           where you read it. Every control here saves on the spot. -->
+      <div class="fuBar">
+        <span class="sub" style="margin:0">Next follow-up</span>
+        <input type="date" id="fuDate" value="${c.followUpAt?esc(c.followUpAt.slice(0,10)):""}">
+        <button class="btn ghost" data-fu="7">+1w</button>
+        <button class="btn ghost" data-fu="14">+2w</button>
+        <button class="btn ghost" data-fu="30">+1m</button>
+        <button class="btn ghost" data-fu="clear">clear</button>
+        <span class="sub" id="fuState" style="margin:0">${fuLabel(c.followUpAt)}${c.followUpNote?` — ${esc(c.followUpNote)}`:""}</span>
+      </div>
       ${activityHist.length?activityHist.map(itRow).join(""):`<div class="empty">No messages or meetings yet.</div>`}
     </div>
     ${calls.length?secH(`Calls · ${calls.length}`,"sec-calls")+`<div class="hist" style="border-top:0;margin-top:0;padding-top:0">${calls.map(itRow).join("")}</div>`:""}
@@ -1292,6 +1309,10 @@ async function openDetail(id){
         r.style.display = !q || r.textContent.toLowerCase().includes(q) ? "" : "none";
       });
     });
+    $("#fuDate").addEventListener("change", e => setFollowUp(id, e.target.value));
+    document.querySelectorAll("#modal .fuBar [data-fu]").forEach(b => {
+      b.onclick = () => setFollowUp(id, b.dataset.fu === "clear" ? "" : dateIn(Number(b.dataset.fu)));
+    });
     $("#avatarBtn").onclick = ()=>$("#avatarFile").click();
     $("#avatarFile").addEventListener("change", async (e)=>{
       const f = e.target.files[0]; if(!f) return;
@@ -1379,6 +1400,36 @@ async function saveDetail(){
 async function delContact(id){
   if (!confirm("Delete this contact and its history?")) return;
   await api(`/contacts/${id}`,{method:"DELETE"}); await load(); location.hash = "#"+view; toast("Deleted");
+}
+/* ---------- next follow-up, edited in place ---------- */
+// Plain words for a date, because "2026-06-17" doesn't say "three weeks late".
+function fuLabel(d){
+  if (!d) return "none set";
+  const day = d.slice(0,10);
+  const days = Math.round((new Date(day) - new Date(TODAY)) / 864e5);
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days > 0) return `in ${days}d`;
+  return `${-days}d overdue`;
+}
+function dateIn(days){
+  const d = new Date(); d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0,10);
+}
+// Saves immediately: a follow-up you have to remember to Save is one you lose.
+async function setFollowUp(id, date){
+  try {
+    await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({followUpAt: date || null})});
+    const c = CONTACTS.find(x=>x.id===id); if (c) c.followUpAt = date || null;
+    if ($("#fuDate")) $("#fuDate").value = date || "";
+    if ($("#dNext"))  $("#dNext").value  = date || "";   // keep the edit form honest
+    if ($("#fuState")){
+      const note = c && c.followUpNote ? ` — ${esc(c.followUpNote)}` : "";
+      $("#fuState").innerHTML = fuLabel(date) + note;
+    }
+    refreshCounts(); renderActive();
+    toast(date ? `Follow-up ${date} · ${fuLabel(date)}` : "Follow-up cleared");
+  } catch(e){ toast("Error: "+e.message); }
 }
 async function logInteraction(id){
   const sum = $("#logSum").value.trim(); if(!sum){ toast("Write what happened"); return; }
