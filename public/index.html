@@ -1067,8 +1067,13 @@ function renderContacts(){
       <div class="meta">
         ${lastDate(c)?`last ${lastDate(c)}`:"never talked"}
         ${c.followUpAt?` · <span class="pill next ${nc}">next ${c.followUpAt.slice(0,10)}</span>`:""}
+        ${listFilter?` · <span data-rm="${c.id}" title="Remove from this list" style="cursor:pointer;opacity:.55">✕ remove</span>`:""}
       </div>`;
     el.addEventListener("click", ()=>{ location.hash = "#c/"+c.id; });
+    // Weeding someone out happens while you're reading the list, not from
+    // inside their card — so the control lives on the row.
+    const rm = el.querySelector("[data-rm]");
+    if (rm) rm.addEventListener("click", e => { e.stopPropagation(); removeFromList(listFilter, c.id, c.name); });
     return el;
   };
   if (listFilter){
@@ -1406,6 +1411,15 @@ async function delList(id){
   try { await api(`/lists/${id}`,{method:"DELETE"}); }
   catch(e){ toast(`Delete failed: ${e.message||e}`); return; }
   if(listFilter===id) listFilter=""; await load(); toast("List deleted");
+}
+// Drop one person from one list. The contact and every other list they sit in
+// are untouched — this only cuts the membership.
+async function removeFromList(listId, contactId, name){
+  if(!listId || !contactId) return;
+  if(!confirm(`Remove ${name} from "${listName(listId)}"? The contact is kept — only their place in this list goes.`)) return;
+  try { await api(`/lists/${listId}/members/${contactId}`,{method:"DELETE"}); }
+  catch(e){ toast(`Remove failed: ${e.message||e}`); return; }
+  await load(); toast(`${name} removed from list`);
 }
 
 /* ---------- Pipeline view ---------- */
