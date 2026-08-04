@@ -11,6 +11,10 @@ export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   API_KEY: string;
+  /** Human login for the web UI. Exchanged at /auth/login for a session
+   *  token; API_KEY stays the machine credential. Optional so the API keeps
+   *  working key-only until the secret is set. */
+  APP_PASSWORD?: string;
 }
 
 /** JSON text column → array. Tolerates NULL and legacy non-array values. */

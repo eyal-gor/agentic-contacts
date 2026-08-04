@@ -445,6 +445,17 @@
 
 <div class="scrim" id="scrim"><div class="modal" id="modal"></div></div>
 
+<!-- Sign-in: shown whenever the API answers 401. -->
+<div class="kb" id="loginCard"><div class="card" style="min-width:300px">
+  <h3>Sign in</h3>
+  <div class="sub" style="margin-bottom:10px">Your contacts are private — enter the password.</div>
+  <input type="password" id="loginPw" placeholder="Password" autocomplete="current-password" style="width:100%;margin-bottom:10px">
+  <div style="display:flex;align-items:center;gap:10px">
+    <button class="btn" id="loginBtn">Sign in</button>
+    <span id="loginErr" style="color:#f09a9a;font-size:12px"></span>
+  </div>
+</div></div>
+
 <div class="kb" id="kbHelp"><div class="card">
   <h3>Keyboard shortcuts</h3>
   <table>
@@ -490,17 +501,34 @@ const $ = (s, r=document) => r.querySelector(s);
 // without a build-time secret.
 const KEY_STORAGE = "ac_api_key";
 function getApiKey(){ try { return localStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; } }
-function promptApiKey(){
-  const k = window.prompt("Agentic Contacts API key (stored only in this browser):", getApiKey());
-  if (k && k.trim()) { try { localStorage.setItem(KEY_STORAGE, k.trim()); } catch {} return k.trim(); }
-  return null;
+// Password sign-in. The stored bearer is a session token (st_…) after login;
+// a pasted API key still works for anyone who prefers it.
+let loginWaiter = null;
+function requestLogin(){
+  return new Promise(res => {
+    loginWaiter = res;
+    $("#loginCard").classList.add("on");
+    setTimeout(()=>$("#loginPw").focus(), 50);
+  });
+}
+async function doLogin(){
+  const pw = $("#loginPw").value; if (!pw) return;
+  $("#loginBtn").disabled = true; $("#loginErr").textContent = "";
+  try {
+    const r = await fetch("/auth/login", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ password: pw }) });
+    if (!r.ok){ $("#loginErr").textContent = "Wrong password."; return; }
+    const { token } = await r.json();
+    try { localStorage.setItem(KEY_STORAGE, token); } catch {}
+    $("#loginPw").value = ""; $("#loginCard").classList.remove("on");
+    if (loginWaiter){ loginWaiter(); loginWaiter = null; }
+  } finally { $("#loginBtn").disabled = false; }
 }
 const api = async (path, init, _retried) => {
   const key = getApiKey();
   const r = await fetch(path, { ...(init||{}), headers: { "Content-Type":"application/json", ...(key ? { "Authorization": `Bearer ${key}` } : {}), ...((init&&init.headers)||{}) }});
   if (r.status === 401 && !_retried) {
-    const fresh = promptApiKey();
-    if (fresh) return api(path, init, true);
+    await requestLogin();
+    return api(path, init, true);
   }
   const t = await r.text(); const d = t ? JSON.parse(t) : null;
   if (!r.ok) throw new Error(d?.error || r.statusText);
@@ -1348,6 +1376,8 @@ $("#newBtn").addEventListener("click",()=>{ location.hash = "#new"; });
 $("#newListBtn").addEventListener("click",newList);
 $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.hash="#contacts"; });
 $("#refresh").addEventListener("click",load);
+$("#loginBtn").addEventListener("click",doLogin);
+$("#loginPw").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 $("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim") closeTo(); });
 /* ---------- keyboard navigation ---------- */
 const KB_VIEWS = ["today","contacts","companies","outreach","calendar","pipeline","lists"];

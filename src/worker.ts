@@ -4,7 +4,7 @@ import { listsRoute } from "./routes/lists.js";
 import { companiesRoute } from "./routes/companies.js";
 import * as store from "./store.js";
 import * as interactions from "./interactions.js";
-import { requireApiKey } from "./auth.js";
+import { requireApiKey, issueSession } from "./auth.js";
 import { mcp } from "./mcp.js";
 import type { Env } from "./db.js";
 
@@ -24,6 +24,18 @@ const app = new Hono<{ Bindings: Env }>();
 
 // Unauthenticated: uptime checks shouldn't need the key.
 app.get("/health", (c) => c.json({ status: "ok" }));
+
+// Human sign-in: password → 30-day session token. Wrong guesses cost 600ms —
+// enough to make brute force boring without a rate-limit table.
+app.post("/auth/login", async (c) => {
+  if (!c.env.APP_PASSWORD) return c.json({ error: "login not configured: set the APP_PASSWORD secret" }, 500);
+  const { password } = (await c.req.json().catch(() => ({}))) as { password?: string };
+  if (password !== c.env.APP_PASSWORD) {
+    await new Promise((r) => setTimeout(r, 600));
+    return c.json({ error: "wrong password" }, 401);
+  }
+  return c.json(await issueSession(c.env));
+});
 
 app.route("/contacts", contacts);
 app.route("/mcp", mcp);
