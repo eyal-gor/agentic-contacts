@@ -208,6 +208,16 @@
   .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(3px);
     display: none; align-items: center; justify-content: center; z-index: 20; }
   .scrim.on { display: flex; }
+  /* floating handset phone (embeds handset.gneyal.workers.dev) */
+  .phone { position: fixed; right: 18px; bottom: 18px; width: 340px; height: 580px; z-index: 80;
+    display: none; flex-direction: column; background: var(--elevated); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; box-shadow: 0 16px 48px rgba(0,0,0,.55); }
+  .phone.on { display: flex; }
+  .phone header { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--muted); }
+  .phone header .x { margin-left: auto; cursor: pointer; color: var(--faint); font-size: 16px; line-height: 1; }
+  .phone header .x:hover { color: var(--text); }
+  .phone iframe { flex: 1; border: 0; width: 100%; background: #0b0c0e; }
   /* keyboard shortcuts card (? or Cmd+K) */
   .kb { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(3px);
     display: none; align-items: center; justify-content: center; z-index: 60; }
@@ -414,6 +424,11 @@
     <tr><td><kbd>?</kbd> or <kbd>⌘K</kbd></td><td>this card</td></tr>
   </table>
 </div></div>
+<!-- Floating handset: iframe loads on first Call click, never eagerly. -->
+<div class="phone" id="phonePanel">
+  <header>📞 Handset <span class="x" onclick="phoneClose()" title="Close — ends any active call">×</span></header>
+  <iframe id="phoneFrame" allow="microphone; autoplay" title="Handset"></iframe>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -935,7 +950,7 @@ async function openDetail(id){
       ${(c.emails&&c.emails[0])?`<a href="mailto:${esc(c.emails[0])}">✉ ${esc(c.emails[0])}</a>`:""}
       ${c.linkedin?`<a href="${esc(c.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a>`:""}
       ${compRec?`<a href="#co/${compRec.id}">${esc(compRec.name)} ↗</a>`:""}
-      ${(c.phones&&c.phones[0])?`<a href="tel:${esc(c.phones[0])}">${esc(c.phones[0])}</a>`:""}
+      ${(c.phones||[]).map(p=>`<a href="tel:${esc(p)}" onclick="callWith('${esc(p)}');return false;" title="Call with Handset">📞 ${esc(p)}</a>`).join("")}
     </div>` : "";
   const logAndHist = id ? `
     <div class="hist" style="border-top:0;margin-top:2px;padding-top:0">
@@ -1078,6 +1093,27 @@ function applyRoute(){
 // close the modal by navigating back to the current view's URL
 function closeTo(){ location.hash = "#" + view; }
 window.closeTo = closeTo;
+
+/* ── call via handset (embedded softphone) ─────────────────────────────── */
+const HANDSET_URL = "https://handset.gneyal.workers.dev/";
+// Handset only takes full international numbers (or bare US ones), so local
+// Israeli 05x… gets its +972 here before hand-off.
+function handsetE164(p){
+  let d = String(p).trim().replace(/[^\d+]/g,"");
+  if (d.startsWith("00")) d = "+" + d.slice(2);
+  if (!d.startsWith("+") && /^0\d{8,9}$/.test(d)) d = "+972" + d.slice(1);
+  return d;
+}
+function callWith(p){
+  // Reassigning src reloads the frame, arming the dialer with the new number.
+  $("#phoneFrame").src = HANDSET_URL + "?to=" + encodeURIComponent(handsetE164(p));
+  $("#phonePanel").classList.add("on");
+}
+function phoneClose(){
+  $("#phonePanel").classList.remove("on");
+  $("#phoneFrame").src = "about:blank";   // tears down the softphone → hangs up
+}
+window.callWith = callWith; window.phoneClose = phoneClose;
 window.addEventListener("hashchange", applyRoute);
 
 /* ---------- wiring ---------- */
