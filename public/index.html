@@ -876,7 +876,8 @@ function renderToday(){
   // 2 — new conversations, drawn from campaigns so the pick has a reason.
   const picks = campaignPicks().filter(p => !search || matchesSearch(p.c));
   const started = picks.filter(p => take(p.c))
-    .map(p => todayRow(p.c, `${p.list.name}`, "", p.c.draft || draftFor(p.c)));
+    // The campaign's own message, personalised — not the generic template.
+    .map(p => todayRow(p.c, `${p.list.name}`, "", p.c.draft || fillTemplate(p.list.template, p.c) || draftFor(p.c)));
   // No campaign running? Fall back to a couple of never-contacted people so
   // the block isn't silently empty — but say plainly that nothing's steering it.
   const fallback = picks.length ? [] :
@@ -966,7 +967,11 @@ async function revokeApiKey(id){
 /* ---------- Contacts view ---------- */
 function renderContacts(){
   const banner = $("#listBanner");
-  if (listFilter){ banner.style.display=""; $("#listBannerName").textContent = listName(listFilter); }
+  if (listFilter){
+    banner.style.display="";
+    const l = LISTS.find(x => x.id === listFilter);
+    $("#listBannerName").textContent = listName(listFilter) + (l && l.perDay ? ` · campaign, ${l.perDay}/day` : "");
+  }
   else banner.style.display="none";
   let cs = CONTACTS.filter(matchesSearch);
   if (listFilter) cs = cs.filter(c => listIdsOf(c).includes(listFilter));
@@ -981,7 +986,7 @@ function renderContacts(){
   });
   const box = $("#clist"); box.innerHTML = "";
   if (!cs.length) box.innerHTML = `<div class="empty">No contacts match.</div>`;
-  for (const c of cs){
+  const rowFor = c => {
     const st = stageOf(c), icp = icpOf(c), circle = circleOf(c), nc = nextClass(c.followUpAt);
     const el = document.createElement("div"); el.className="crow"; el.dataset.id=c.id;
     el.style.borderLeftColor = st ? `var(--${st})` : "var(--mut)";
@@ -999,9 +1004,27 @@ function renderContacts(){
         ${c.followUpAt?` · <span class="pill next ${nc}">next ${c.followUpAt.slice(0,10)}</span>`:""}
       </div>`;
     el.addEventListener("click", ()=>{ location.hash = "#c/"+c.id; });
-    box.appendChild(el);
+    return el;
+  };
+  if (listFilter){
+    // Inside a list you're working a set to completion, so the only division
+    // that matters is done / not done — and how many are left.
+    const todo = cs.filter(c => !lastDate(c));
+    const done = cs.filter(c => lastDate(c));
+    const head = (title, sub, n) => {
+      const h = document.createElement("div"); h.className = "today-block";
+      h.innerHTML = `<span class="bt">${esc(title)}</span><span class="bn">${n}</span><span class="bs">${esc(sub)}</span>`;
+      box.appendChild(h);
+    };
+    if (todo.length){ head("Not contacted", "still to reach out to", todo.length); todo.forEach(c => box.appendChild(rowFor(c))); }
+    if (done.length){ head("Contacted", "already in conversation", done.length); done.forEach(c => box.appendChild(rowFor(c))); }
+    const l = LISTS.find(x => x.id === listFilter);
+    $("#cstat").textContent = `${done.length} of ${cs.length} contacted · ${todo.length} left`
+      + (l && l.perDay ? ` · ${l.perDay}/day → ${Math.ceil(todo.length / l.perDay)} day${Math.ceil(todo.length/l.perDay)===1?"":"s"} to finish` : "");
+  } else {
+    cs.forEach(c => box.appendChild(rowFor(c)));
+    $("#cstat").textContent = `${cs.length} of ${CONTACTS.length} contacts`;
   }
-  $("#cstat").textContent = `${cs.length} of ${CONTACTS.length} contacts`;
   $("#stat").textContent = "";
 }
 
@@ -1224,7 +1247,7 @@ function renderLists(){
     el.dataset.id = l.id;
     el.innerHTML = `
       <div><span class="nm">${esc(l.name)}</span>
-        <div class="co">${l.perDay ? `campaign · ${l.perDay}/day` : "collection"}${l.angle?` · ${esc(l.angle)}`:""}</div></div>
+        <div class="co">${l.perDay ? `campaign · ${l.perDay}/day` : "collection"}${l.template?` · “${esc(l.template.slice(0,70))}${l.template.length>70?"…":""}”`:l.perDay?" · no message yet":""}</div></div>
       <div class="meta">${l.memberCount} member${l.memberCount===1?"":"s"}</div>
       <div class="tags" style="justify-content:flex-end;gap:6px">
         <button class="btn ghost" data-campaign="${l.id}">${l.perDay?"Campaign ✓":"Make campaign"}</button>
@@ -1249,20 +1272,58 @@ async function newList(){
   const name = prompt("New list name:"); if(!name) return;
   await api("/lists",{method:"POST",body:JSON.stringify({name})}); await load(); toast("List created");
 }
-// A campaign is a list plus the two facts the morning needs: what you're
-// saying to these people, and how many of them a day.
-async function editCampaign(id){
+// The campaign's message, with the person dropped into it. Anything unknown
+// leaves no gap — a message with a dangling "at " reads worse than one without.
+function fillTemplate(tpl, c){
+  if (!tpl) return "";
+  const first = (c.name||"").split(/\s+/)[0] || "there";
+  return deDash(tpl)
+    .replace(/\{first\}/g, first)
+    .replace(/\{name\}/g, c.name || first)
+    .replace(/\{company\}/g, c.company || "")
+    .replace(/\{title\}/g, c.title || "")
+    .replace(/ +([,.])/g, "$1").replace(/ {2,}/g, " ").trim();
+}
+// A campaign is a list plus the two things the morning needs: the message
+// these people get, and how many a day.
+function editCampaign(id){
   const l = LISTS.find(x=>x.id===id); if(!l) return;
-  const angle = prompt(`What are you saying to "${l.name}"?\n(one line — the pitch or the reason you're reaching out)`, l.angle || "");
-  if (angle === null) return;
-  const perDayRaw = prompt("How many of them per day?\n(0 turns it back into a plain collection)", String(l.perDay || 2));
-  if (perDayRaw === null) return;
-  const perDay = Math.max(0, Math.min(50, parseInt(perDayRaw, 10) || 0));
-  try {
-    await api(`/lists/${id}`,{method:"PATCH",body:JSON.stringify({angle: angle.trim() || null, perDay})});
-    await load();
-    toast(perDay ? `Campaign on — ${perDay}/day` : "Back to a plain collection");
-  } catch(e){ toast("Error: "+e.message); }
+  const sample = CONTACTS.find(c => listIdsOf(c).includes(l.id));
+  $("#modal").innerHTML = `
+    <span class="x" onclick="closeTo()">×</span>
+    <h3>Campaign — ${esc(l.name)}</h3>
+    <div class="sub">The message everyone on this list gets, and how many go out a day.</div>
+    <div class="row" style="margin-top:10px"><div>
+      <label>Message <span style="color:var(--faint);font-weight:400">— {first}, {name}, {company}, {title} get filled in</span></label>
+      <textarea id="campTpl" style="min-height:150px">${esc(l.template||"")}</textarea>
+    </div></div>
+    <div class="row">
+      <div style="flex:0 0 160px"><label>Per day</label><input type="number" id="campPerDay" min="0" max="50" value="${l.perDay||0}"></div>
+      <div><label>Preview${sample?` — ${esc(sample.name)}`:""}</label><div id="campPreview" class="sub" style="white-space:pre-wrap;margin:0;padding:8px 10px;border:1px solid var(--border);border-radius:8px;min-height:40px"></div></div>
+    </div>
+    <div class="sub" style="color:var(--faint)">0 per day leaves this a plain collection — curated, but not feeding the morning.</div>
+    <div class="actions">
+      <div class="grow"></div>
+      <button class="btn ghost" onclick="closeTo()">Cancel</button>
+      <button class="btn" id="campSave">Save campaign</button>
+    </div>`;
+  const paint = () => {
+    $("#campPreview").textContent = sample
+      ? (fillTemplate($("#campTpl").value, sample) || "…")
+      : "Add someone to the list to preview it.";
+  };
+  $("#campTpl").addEventListener("input", paint); paint();
+  $("#campSave").onclick = async () => {
+    const perDay = Math.max(0, Math.min(50, parseInt($("#campPerDay").value,10) || 0));
+    const template = $("#campTpl").value.trim();
+    if (perDay > 0 && !template){ toast("A running campaign needs a message"); return; }
+    try {
+      await api(`/lists/${id}`,{method:"PATCH",body:JSON.stringify({ template: template || null, perDay })});
+      await load(); closeModal();
+      toast(perDay ? `Campaign on — ${perDay}/day` : "Back to a plain collection");
+    } catch(e){ toast("Error: "+e.message); }
+  };
+  $("#scrim").classList.add("on");
 }
 async function renameList(id){
   const cur = listName(id); const name = prompt("Rename list:", cur); if(!name||name===cur) return;

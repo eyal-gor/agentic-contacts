@@ -83,9 +83,10 @@ export type InteractionInputT = z.infer<typeof InteractionInput>;
 // trick used for stage:/icp:, so the existing tag filter finds members.
 export const ListInput = z.object({
   name: z.string().min(1, "name is required"),
-  // What you're saying to these people, and how many a day. A list with
-  // perDay > 0 is a campaign: the daily queue draws first touches from it.
-  angle: z.string().nullable().optional(),
+  // The message sent to these people, with {first}/{company}/{title} filled in
+  // per person, plus how many a day. perDay > 0 makes the list a campaign and
+  // the daily queue draws first touches from it.
+  template: z.string().nullable().optional(),
   perDay: z.number().int().min(0).max(50).optional(),
 });
 export type ListInputT = z.infer<typeof ListInput>;
@@ -93,7 +94,7 @@ export type ListInputT = z.infer<typeof ListInput>;
 export interface ContactList {
   id: string;
   name: string;
-  angle?: string | null;
+  template?: string | null;
   perDay: number;
   createdAt: string;
   updatedAt: string;
