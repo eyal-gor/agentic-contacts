@@ -16,7 +16,7 @@ import type { Contact, ContactPatchT } from "./schema.js";
  *
  * Connect with:
  *   claude mcp add contacts --transport http \
- *     https://agentic-contacts.gneyal.workers.dev/mcp \
+ *     https://contacts.autobirds.com/mcp \
  *     --header "Authorization: Bearer $CONTACTS_API_KEY"
  */
 export const mcp = new Hono<{ Bindings: Env }>();

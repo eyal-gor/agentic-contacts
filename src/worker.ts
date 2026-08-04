@@ -23,6 +23,26 @@ import type { Env } from "./db.js";
  */
 const app = new Hono<{ Bindings: Env }>();
 
+/**
+ * Force HTTPS.
+ *
+ * The custom domain answers on port 80 as happily as on 443, and a browser
+ * given a bare hostname tries http first — which is why the address bar said
+ * "Not secure" while the certificate was perfectly valid. Redirect, then ask
+ * the browser to stop trying http at all for a year. Not includeSubDomains:
+ * this Worker has no business making promises for the rest of the domain.
+ */
+app.use("*", async (c, next) => {
+  const url = new URL(c.req.url);
+  const scheme = c.req.header("cf-visitor")?.includes('"http"') ? "http" : url.protocol.replace(":", "");
+  if (scheme === "http") {
+    url.protocol = "https:";
+    return c.redirect(url.toString(), 301);
+  }
+  await next();
+  c.res.headers.set("Strict-Transport-Security", "max-age=31536000");
+});
+
 // Unauthenticated: uptime checks shouldn't need the key.
 app.get("/health", (c) => c.json({ status: "ok" }));
 
