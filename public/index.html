@@ -65,6 +65,10 @@
   .cardNav .n { margin-left: 5px; color: var(--faint); font-weight: 500; font-size: 11px; }
   .cardBody { flex: 1; min-width: 0; }
   .cardBody .side-label:first-child { padding-top: 4px; }
+  /* Contact photo: real image or colored initials, same circle either way */
+  .avatar { border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 600; overflow: hidden; flex: 0 0 auto; user-select: none; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .side-label { color: var(--faint); font-size: 11px; font-weight: 500; text-transform: uppercase;
     letter-spacing: .06em; padding: 16px 9px 6px; }
 
@@ -592,7 +596,7 @@ function todayRow(c, why, cls){
   el.style.borderLeftColor = st ? `var(--${st})` : "var(--mut)";
   const who = [c.title, c.company].filter(Boolean).join(" · ");
   el.innerHTML = `
-    <div><span class="nm">${esc(c.name)}</span>${who?` <span class="co">· ${esc(who)}</span>`:""}</div>
+    <div style="display:flex;gap:10px;align-items:center;min-width:0">${avatarHtml(c,30)}<div style="min-width:0"><span class="nm">${esc(c.name)}</span>${who?` <span class="co">· ${esc(who)}</span>`:""}</div></div>
     <div class="tags">${st?`<span class="pill stage">${st}</span>`:""}</div>
     <div class="meta"><span class="pill next ${cls||""}">${esc(why)}</span>
       ${lastDate(c)?` · last ${lastDate(c)}`:" · never talked"}</div>`;
@@ -656,7 +660,7 @@ function renderContacts(){
     const el = document.createElement("div"); el.className="crow"; el.dataset.id=c.id;
     el.style.borderLeftColor = st ? `var(--${st})` : "var(--mut)";
     el.innerHTML = `
-      <div><span class="nm">${esc(c.name)}</span>${c.company?` <span class="co">· ${esc(c.company)}</span>`:""}${c.linkedin?` <a class="li" href="${esc(c.linkedin)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">in↗</a>`:""}${c.title?`<div class="co">${esc(c.title)}</div>`:""}</div>
+      <div style="display:flex;gap:10px;align-items:center;min-width:0">${avatarHtml(c,30)}<div style="min-width:0"><span class="nm">${esc(c.name)}</span>${c.company?` <span class="co">· ${esc(c.company)}</span>`:""}${c.linkedin?` <a class="li" href="${esc(c.linkedin)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">in↗</a>`:""}${c.title?`<div class="co">${esc(c.title)}</div>`:""}</div></div>
       <div class="tags">
         ${circle?`<span class="pill circle c${circle}" title="circle ${circle}">${circle}°</span>`:""}
         ${st?`<span class="pill stage">${st}</span>`:""}
@@ -1091,8 +1095,14 @@ async function openDetail(id){
     </nav>` : "";
   $("#modal").innerHTML = `
     <span class="x" onclick="closeTo()">×</span>
-    <h3>${id?esc(c.name):"New contact"}</h3>
-    <div class="sub">${id?[c.title,c.company].filter(Boolean).map(esc).join(" · ")||"Log interactions, set follow-up, edit details":"Add someone to your contacts"}</div>
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:8px">
+      ${id?`<span id="avatarBtn" title="${c.image?"Change photo":"Add a photo"}" style="cursor:pointer">${avatarHtml(c,56)}</span>
+      <input type="file" id="avatarFile" accept="image/*" style="display:none">`:""}
+      <div style="min-width:0">
+        <h3 style="margin:0">${id?esc(c.name):"New contact"}</h3>
+        <div class="sub" style="margin:0">${id?[c.title,c.company].filter(Boolean).map(esc).join(" · ")||"Log interactions, set follow-up, edit details":"Add someone to your contacts"}${id&&c.image?` · <a id="avatarRemove" style="cursor:pointer;color:var(--faint)">remove photo</a>`:""}</div>
+      </div>
+    </div>
     ${id?`<div class="brief">${[
       stageOf(c)?`<span class="pill stage">${stageOf(c)}</span>`:"",
       c.createdAt?`known since ${c.createdAt.slice(0,10)}`:"",
@@ -1157,12 +1167,48 @@ async function openDetail(id){
         r.style.display = !q || r.textContent.toLowerCase().includes(q) ? "" : "none";
       });
     });
+    $("#avatarBtn").onclick = ()=>$("#avatarFile").click();
+    $("#avatarFile").addEventListener("change", async (e)=>{
+      const f = e.target.files[0]; if(!f) return;
+      try {
+        const url = await downscaleImage(f, 128);
+        await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({image:url})});
+        await load(); openDetail(id); toast("Photo saved");
+      } catch { toast("Couldn't read that image"); }
+    });
+    const rm = $("#avatarRemove");
+    if (rm) rm.onclick = async ()=>{
+      await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({image:null})});
+      await load(); openDetail(id); toast("Photo removed");
+    };
   }
   if ($("#emailGuesses")){ renderEmailGuesses(); $("#dDomain").addEventListener("input", renderEmailGuesses); $("#dName").addEventListener("input", renderEmailGuesses); }
   $("#scrim").classList.add("on");
 }
 function closeModal(){ $("#scrim").classList.remove("on"); detailId=null; }
 window.closeModal = closeModal;
+
+/* ---------- contact photos ---------- */
+function initialsOf(n){ return (n||"?").split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase(); }
+function avatarHtml(c, size){
+  const hue = [...(c.name||"?")].reduce((a,ch)=>a+ch.charCodeAt(0),0)%360;
+  return `<span class="avatar" style="width:${size}px;height:${size}px;font-size:${Math.round(size*.38)}px;${c.image?"":`background:hsl(${hue},38%,46%)`}">${c.image?`<img src="${esc(c.image)}" alt="">`:esc(initialsOf(c.name))}</span>`;
+}
+// Center-crop to a small square JPEG so the row stays a few KB, not a photo.
+function downscaleImage(file, size){
+  return new Promise((res, rej)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const cv = document.createElement("canvas"); cv.width = cv.height = size;
+      const s = Math.min(img.width, img.height);
+      cv.getContext("2d").drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, size, size);
+      URL.revokeObjectURL(img.src);
+      res(cv.toDataURL("image/jpeg", .85));
+    };
+    img.onerror = rej;
+    img.src = URL.createObjectURL(file);
+  });
+}
 
 // Best-effort domain from a company name (user can edit it).
 function guessDomain(co){
