@@ -291,6 +291,21 @@
   .guess span { font-family: var(--mono, "SF Mono", Menlo, monospace); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
   .hist { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
+  /* The next action — the one line on a card that says what to do now, so it
+     gets the weight the rest of the card doesn't. */
+  .nextAct { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; padding: 10px 12px;
+    border: 1px solid var(--border); border-left: 3px solid var(--mut); border-radius: 8px;
+    background: var(--surface); }
+  .nextAct.over { border-left-color: #e5484d; background: rgba(235,87,87,.07); }
+  .nextAct.soon { border-left-color: #d8a92a; background: rgba(224,193,80,.07); }
+  .nextAct.ok   { border-left-color: #3fb27f; }
+  .nextAct .when { flex: 0 0 auto; font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .4px; color: var(--muted); }
+  .nextAct.over .when { color: #e5484d; }
+  .nextAct .actNote { flex: 1; margin: 0; border: 0; background: transparent; padding: 2px 0;
+    font-size: 14.5px; font-weight: 500; color: var(--text); }
+  .nextAct .actNote:focus { outline: none; box-shadow: 0 1px 0 var(--accent); }
+  .nextAct .actNote::placeholder { font-weight: 400; color: var(--faint); }
   /* Relevance verdicts */
   .pill.rel.relevant { background: rgba(76,195,138,.15); color: #84d6ac; }
   .pill.rel.maybe    { background: rgba(224,193,80,.16); color: #e6cf78; }
@@ -1280,7 +1295,6 @@ async function openDetail(id){
         <button class="btn ghost" data-fu="14">+2w</button>
         <button class="btn ghost" data-fu="30">+1m</button>
         <button class="btn ghost" data-fu="clear">clear</button>
-        <span class="sub" id="fuState" style="margin:0">${fuLabel(c.followUpAt)}${c.followUpNote?` — ${esc(c.followUpNote)}`:""}</span>
       </div>
       ${activityHist.length?activityHist.map(itRow).join(""):`<div class="empty">No messages or meetings yet.</div>`}
     </div>
@@ -1319,6 +1333,11 @@ async function openDetail(id){
     ].filter(Boolean).join(" · ")}</div>`:""}
     ${relBar}
     ${quickActions}
+    ${id?`<div class="nextAct ${c.followUpAt?nextClass(c.followUpAt):""}" id="nextAct">
+      <span class="when" id="fuWhen">${c.followUpAt?esc(fuLabel(c.followUpAt)):"no date"}</span>
+      <input id="fuNote" class="actNote" value="${esc(c.followUpNote||"")}"
+             placeholder="What's the next action with ${esc((c.name||"them").split(/\s+/)[0])}?">
+    </div>`:""}
     ${id?`<div class="cardCols">${cardNav}<div class="cardBody">`:""}
     ${sections}
     <div class="row">
@@ -1351,10 +1370,10 @@ async function openDetail(id){
     ${LISTS.length?`<div class="row"><div><label>Lists</label><div id="dLists" style="display:flex;flex-wrap:wrap;gap:10px">
       ${LISTS.map(l=>`<label class="toggle" style="font-weight:500;color:var(--text)"><input type="checkbox" class="dList" value="${l.id}" ${listIdsOf(c).includes(l.id)?"checked":""}> ${esc(l.name)}</label>`).join("")}
     </div></div></div>`:""}
-    <div class="row">
+    ${id?"":`<div class="row">
       <div><label>Next follow-up</label><input type="date" id="dNext" value="${c.followUpAt?c.followUpAt.slice(0,10):""}"></div>
       <div><label>About</label><input id="dNextNote" value="${esc(c.followUpNote)}"></div>
-    </div>
+    </div>`}
     ${id?"":`<div class="row"><div><label>Notes</label><textarea id="dNotes">${esc(c.notes)}</textarea></div></div>`}
     <div class="actions">
       ${id?`<button class="btn danger" id="delBtn">Delete</button>`:""}
@@ -1380,6 +1399,15 @@ async function openDetail(id){
       b.onclick = () => setRelevance(id, relOf(CONTACTS.find(x=>x.id===id)||{}) === b.dataset.rel ? "" : b.dataset.rel);
     });
     $("#fuDate").addEventListener("change", e => setFollowUp(id, e.target.value));
+    // The next action saves when you leave it or press Enter — never a Save button.
+    const noteEl = $("#fuNote");
+    const saveNote = () => {
+      const c2 = CONTACTS.find(x=>x.id===id) || {};
+      if ((noteEl.value.trim()) === (c2.followUpNote||"")) return;
+      setFollowUpNote(id, noteEl.value.trim());
+    };
+    noteEl.addEventListener("blur", saveNote);
+    noteEl.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); noteEl.blur(); } });
     document.querySelectorAll("#modal .fuBar [data-fu]").forEach(b => {
       b.onclick = () => setFollowUp(id, b.dataset.fu === "clear" ? "" : dateIn(Number(b.dataset.fu)));
     });
@@ -1455,16 +1483,21 @@ function renderEmailGuesses(){
 }
 
 async function saveDetail(){
-  const v = s => $("#"+s).value.trim();
+  const v = s => ($("#"+s) ? $("#"+s).value.trim() : "");
   const arr = s => v(s).split(",").map(x=>x.trim()).filter(Boolean);
   const stage = $("#dStage").value, icp = $("#dIcp").value, circle = $("#dCircle").value;
-  const tags = [...arr("dTags").filter(t=>!t.startsWith("stage:")&&!t.startsWith("icp:")&&!t.startsWith("list:")&&!t.startsWith("circle:"))];
+  const tags = [...arr("dTags").filter(t=>!t.startsWith("stage:")&&!t.startsWith("icp:")&&!t.startsWith("list:")&&!t.startsWith("circle:")&&!t.startsWith("rel:"))];
   if (stage) tags.push("stage:"+stage); if (icp) tags.push("icp:"+icp); if (circle) tags.push("circle:"+circle);
+  // The verdict isn't in this form — carry it through, or Save would erase it.
+  const keepRel = detailId && relOf(CONTACTS.find(x=>x.id===detailId)||{});
+  if (keepRel) tags.push("rel:"+keepRel);
   // list membership comes from the checkboxes (checked = in the list)
   [...document.querySelectorAll(".dList:checked")].forEach(x=>tags.push("list:"+x.value));
   const body = { name:v("dName"), company:v("dCompany"), title:v("dTitle"), linkedin:v("dLinkedin"),
-    emails:arr("dEmails"), phones:arr("dPhones"), tags, notes:v("dNotes"),
-    followUpAt:v("dNext")||null, followUpNote:v("dNextNote")||null };
+    emails:arr("dEmails"), phones:arr("dPhones"), tags, notes:v("dNotes") };
+  // The follow-up lives in the callout at the top of an existing card and saves
+  // itself; only the new-contact form still carries these fields.
+  if ($("#dNext")) { body.followUpAt = v("dNext")||null; body.followUpNote = v("dNextNote")||null; }
   if (!body.name){ toast("Name is required"); return; }
   try {
     if (detailId) await api(`/contacts/${detailId}`,{method:"PATCH",body:JSON.stringify(body)});
@@ -1515,16 +1548,24 @@ function dateIn(days){
   return d.toISOString().slice(0,10);
 }
 // Saves immediately: a follow-up you have to remember to Save is one you lose.
+async function setFollowUpNote(id, note){
+  try {
+    await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({followUpNote: note || null})});
+    const c = CONTACTS.find(x=>x.id===id); if (c) c.followUpNote = note || null;
+    if ($("#dNextNote")) $("#dNextNote").value = note || "";
+    renderActive();
+    toast(note ? "Next action saved" : "Next action cleared");
+  } catch(e){ toast("Error: "+e.message); }
+}
 async function setFollowUp(id, date){
   try {
     await api(`/contacts/${id}`,{method:"PATCH",body:JSON.stringify({followUpAt: date || null})});
     const c = CONTACTS.find(x=>x.id===id); if (c) c.followUpAt = date || null;
     if ($("#fuDate")) $("#fuDate").value = date || "";
     if ($("#dNext"))  $("#dNext").value  = date || "";   // keep the edit form honest
-    if ($("#fuState")){
-      const note = c && c.followUpNote ? ` — ${esc(c.followUpNote)}` : "";
-      $("#fuState").innerHTML = fuLabel(date) + note;
-    }
+    if ($("#fuWhen")) $("#fuWhen").textContent = date ? fuLabel(date) : "no date";
+    const act = $("#nextAct");
+    if (act) act.className = "nextAct " + (date ? nextClass(date) : "");
     refreshCounts(); renderActive();
     toast(date ? `Follow-up ${date} · ${fuLabel(date)}` : "Follow-up cleared");
   } catch(e){ toast("Error: "+e.message); }
