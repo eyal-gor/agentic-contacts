@@ -1032,8 +1032,10 @@ function renderContacts(){
     const l = LISTS.find(x => x.id === listFilter);
     $("#listBannerName").textContent = listName(listFilter) + (l && l.perDay ? ` · offer running, ${l.perDay}/day` : "");
     renderOfferCard(l);
-  } else { $("#listOffer").innerHTML = ""; offerCardFor = null; }
-  else banner.style.display="none";
+  } else {
+    banner.style.display = "none";
+    $("#listOffer").innerHTML = ""; offerCardFor = null;
+  }
   let cs = CONTACTS.filter(matchesSearch);
   if (listFilter) cs = cs.filter(c => listIdsOf(c).includes(listFilter));
   if (tagFilter) cs = cs.filter(c => (c.tags||[]).includes(tagFilter));
