@@ -519,6 +519,8 @@
       <div class="toolbar" id="listBanner" style="display:none">
         <span class="pill icp">In list: <b id="listBannerName" style="margin-left:4px"></b></span>
         <span class="toggle" id="clearListFilter" style="cursor:pointer">✕ clear</span>
+        <div class="grow"></div>
+        <span class="toggle" id="delListFromBanner" style="cursor:pointer;color:var(--danger,#f09a9a)">Delete list</span>
       </div>
       <!-- The offer belongs with the people it goes to, editable where you read it. -->
       <div id="listOffer"></div>
@@ -1400,7 +1402,10 @@ async function renameList(id){
 }
 async function delList(id){
   if(!confirm(`Delete list "${listName(id)}"? Contacts are kept — only the grouping is removed.`)) return;
-  await api(`/lists/${id}`,{method:"DELETE"}); if(listFilter===id) listFilter=""; await load(); toast("List deleted");
+  // A failed delete used to reject silently and look like a no-op.
+  try { await api(`/lists/${id}`,{method:"DELETE"}); }
+  catch(e){ toast(`Delete failed: ${e.message||e}`); return; }
+  if(listFilter===id) listFilter=""; await load(); toast("List deleted");
 }
 
 /* ---------- Pipeline view ---------- */
@@ -2005,6 +2010,8 @@ $("#calNav").addEventListener("click",e=>{const b=e.target.closest("button");if(
 $("#newBtn").addEventListener("click",()=>{ location.hash = "#new"; });
 $("#newListBtn").addEventListener("click",newList);
 $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.hash="#contacts"; });
+// Deleting belongs where you decide a list is junk — inside it, not only on the index.
+$("#delListFromBanner").addEventListener("click",async ()=>{ const id=listFilter; if(!id) return; await delList(id); if(!LISTS.some(l=>l.id===id)) location.hash="#lists"; });
 $("#refresh").addEventListener("click",load);
 
 /* Grab the pipeline's background and drag to pan sideways. Cards keep their
