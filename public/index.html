@@ -1340,7 +1340,12 @@ async function newList(){
 function fillOffer(tpl, c){
   if (!tpl) return "";
   const first = (c.name||"").split(/\s+/)[0] || "there";
-  return deDash(tpl)
+  let s = deDash(tpl);
+  // Drop the whole phrase when the field is blank: "at {company}" with no
+  // company reads as a typo, and half the book has no company.
+  if (!c.company) s = s.replace(/\s*\b(at|@)\s*\{company\}/gi, "");
+  if (!c.title)   s = s.replace(/\s*\bas\s*\{title\}/gi, "");
+  return s
     .replace(/\{first\}/g, first)
     .replace(/\{name\}/g, c.name || first)
     .replace(/\{company\}/g, c.company || "")
