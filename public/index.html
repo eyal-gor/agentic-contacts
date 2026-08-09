@@ -238,13 +238,28 @@
   .cal-cell.today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .cal-day { font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 1px; }
   .cal-cell.today .cal-day { color: var(--accent); font-weight: 600; }
+  /* Each event kind carries its own tint, not just a hairline: at a glance a day
+     should read "mostly green = I added people" or "amber = people owed a reply". */
   .cal-ev { font-size: 11px; padding: 2px 6px; border-radius: 5px; cursor: pointer; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; border-left: 2px solid var(--mut); background: rgba(120,130,150,.1); color: var(--text); }
-  .cal-ev:hover { filter: brightness(1.15); }
-  .cal-ev.added { border-left-color: var(--won); }
-  .cal-ev.follow-up { border-left-color: var(--soon); }
-  .cal-ev.contacted { border-left-color: var(--contacted); }
-  .cal-more { font-size: 11px; color: var(--muted); padding: 1px 6px; cursor: default; }
+    overflow: hidden; text-overflow: ellipsis; border-left: 3px solid var(--k); color: var(--text);
+    background: color-mix(in srgb, var(--k) 15%, transparent); --k: var(--mut); }
+  .cal-ev:hover { background: color-mix(in srgb, var(--k) 28%, transparent); }
+  .cal-ev.added { --k: var(--won); }
+  .cal-ev.follow-up { --k: var(--soon); }
+  .cal-ev.contacted { --k: var(--contacted); }
+
+  /* Per-day tally, so a 41-person import day is legible without expanding it. */
+  .cal-sum { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 1px; }
+  .cal-sum b { font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px;
+    color: var(--k); background: color-mix(in srgb, var(--k) 16%, transparent); }
+  .cal-sum b.added { --k: var(--won); } .cal-sum b.follow-up { --k: var(--soon); }
+  .cal-sum b.contacted { --k: var(--contacted); }
+  .cal-more { font-size: 11px; color: var(--muted); padding: 1px 6px; cursor: pointer; border-radius: 4px; }
+  .cal-more:hover { color: var(--accent); background: rgba(94,106,210,.1); }
+  .cal-legend .sw { width: 9px; height: 9px; border-radius: 3px; display: inline-block;
+    border-left: 3px solid var(--k); background: color-mix(in srgb, var(--k) 22%, transparent); }
+  .cal-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted);
+    cursor: pointer; user-select: none; }
 
   /* ── pipeline board ── */
   .board { display: flex; gap: 14px; padding: 16px 18px; overflow-x: auto; align-items: flex-start;
@@ -559,9 +574,10 @@
         <span class="cal-title" id="calTitle"></span>
         <div class="grow"></div>
         <span class="cal-legend">
-          <span><i class="dot" style="background:var(--contacted)"></i>contacted</span>
-          <span><i class="dot" style="background:var(--won)"></i>added</span>
-          <span><i class="dot" style="background:var(--soon)"></i>follow-up</span>
+          <span><i class="sw" style="--k:var(--won)"></i>added</span>
+          <span><i class="sw" style="--k:var(--contacted)"></i>talked</span>
+          <span><i class="sw" style="--k:var(--soon)"></i>follow-up due</span>
+          <label class="cal-toggle" title="Show the imported US real-estate list too"><input type="checkbox" id="calSegments">imports</label>
         </span>
       </div>
       <div class="cal" id="cal"></div>
@@ -607,11 +623,15 @@
 <!-- Sign-in: shown whenever the API answers 401. -->
 <div class="kb" id="loginCard"><div class="card" style="min-width:300px">
   <h3>Sign in</h3>
-  <div class="sub" style="margin-bottom:10px">Your contacts are private — enter the password.</div>
-  <input type="password" id="loginPw" placeholder="Password" autocomplete="current-password" style="width:100%;margin-bottom:10px">
-  <div style="display:flex;align-items:center;gap:10px">
+  <div class="sub" style="margin-bottom:10px">Your contacts are private.</div>
+  <button class="btn" id="googleBtn" style="width:100%;margin-bottom:8px">Sign in with Google</button>
+  <div id="loginErr" style="color:#f09a9a;font-size:12px;margin-bottom:8px"></div>
+  <!-- The password still works; it is just no longer the thing you are asked
+       for first, having proved to be the kind of secret that gets forgotten. -->
+  <button id="pwToggle" style="background:none;border:0;padding:0;cursor:pointer;color:#8a8a86;font:inherit;font-size:12px">Use a password instead</button>
+  <div id="pwRow" style="display:none;margin-top:10px">
+    <input type="password" id="loginPw" placeholder="Password" autocomplete="current-password" style="width:100%;margin-bottom:10px">
     <button class="btn" id="loginBtn">Sign in</button>
-    <span id="loginErr" style="color:#f09a9a;font-size:12px"></span>
   </div>
 </div></div>
 
@@ -655,6 +675,7 @@ let icpFilter = "", dueFilter = "", search = "", tagFilter = "", sortBy = "name"
 let detailId = null;
 let calY = +TODAY.slice(0,4), calM = +TODAY.slice(5,7) - 1; // calendar month (0-indexed)
 let calExpanded = new Set(); // ISO dates whose "+N more" has been expanded to show all events
+let calSegments = false;     // include imported segments (us-real-estate) in the calendar
 const NOW_DATE = new Date().toISOString().slice(0,10); // real today, for the outreach batch
 const outSkipped = new Set(); // ids skipped this session (not tagged/logged)
 let selIdx = -1; // keyboard-highlighted row index in the current list view
@@ -666,6 +687,31 @@ const $ = (s, r=document) => r.querySelector(s);
 // the first 401 we prompt once, store, and retry — so the UI works
 // without a build-time secret.
 const KEY_STORAGE = "ac_api_key";
+
+/**
+ * Finish a Google sign-in.
+ *
+ * The session arrives in the URL fragment, which browsers never send to a
+ * server. It is moved into storage and struck from the address bar at once, so
+ * a copied URL is not a copied login and a reload is not a second sign-in.
+ */
+(function(){
+  const m = /[#&]session=([^&]+)/.exec(location.hash);
+  if (m) {
+    try { localStorage.setItem(KEY_STORAGE, decodeURIComponent(m[1])); } catch {}
+    history.replaceState(null, "", location.pathname + location.search);
+    return;
+  }
+  const why = new URLSearchParams(location.search).get("signin");
+  if (!why) return;
+  window.__signinError = {
+    denied: "That Google account isn't allowed here.",
+    state: "That sign-in didn't complete — start it again.",
+    failed: "Google couldn't confirm who you are. Try again.",
+    unconfigured: "Google sign-in isn't set up on this deployment yet.",
+  }[why] || "";
+  history.replaceState(null, "", location.pathname);
+})();
 function getApiKey(){ try { return localStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; } }
 // Password sign-in. The stored bearer is a session token (st_…) after login;
 // a pasted API key still works for anyone who prefers it.
@@ -674,9 +720,19 @@ function requestLogin(){
   return new Promise(res => {
     loginWaiter = res;
     $("#loginCard").classList.add("on");
-    setTimeout(()=>$("#loginPw").focus(), 50);
+    if (window.__signinError) { $("#loginErr").textContent = window.__signinError; window.__signinError = ""; }
+    setTimeout(()=>$("#googleBtn").focus(), 50);
   });
 }
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.id === "googleBtn") location.href = "/auth/google/start";
+  if (e.target && e.target.id === "pwToggle") {
+    $("#pwRow").style.display = "block";
+    e.target.style.display = "none";
+    setTimeout(() => $("#loginPw").focus(), 30);
+  }
+});
+
 async function doLogin(){
   const pw = $("#loginPw").value; if (!pw) return;
   $("#loginBtn").disabled = true; $("#loginErr").textContent = "";
@@ -712,6 +768,12 @@ const relOf = c => (c.tags||[]).find(t=>t.startsWith("rel:"))?.slice(4) || null;
 const relPill = c => { const r = relOf(c); return r ? `<span class="pill rel ${r}">${REL[r]||r}</span>` : ""; };
 // Dismissed people shouldn't crowd the queue, but stay findable in Contacts.
 const isDismissed = c => ["not","dupe"].includes(relOf(c));
+// The DB holds two populations: ~70 real professional contacts, and ~155
+// imported US real-estate records tagged segment:us-real-estate. Plus phone-
+// number-only rows (unidentified) and Eyal's own card (self). Only the first
+// group is "the network" — everything that ranks or suggests filters on this.
+const isNetwork = c => !!c && !(c.tags||[]).some(t =>
+  t.startsWith("segment:") || t === "unidentified" || t === "self");
 const listIdsOf = c => (c.tags||[]).filter(t=>t.startsWith("list:")).map(t=>t.slice(5));
 const listName = id => (LISTS.find(l=>l.id===id)||{}).name || id;
 const esc = s => (s??"").replace(/[&<>"]/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
@@ -1252,12 +1314,21 @@ const evKind = k => k === "added" ? "added" : k === "follow-up" ? "follow-up" : 
 function renderCalendar(){
   $("#calTitle").textContent = `${MONTHS[calM]} ${calY}`;
   // group events for this month by day-of-month
+  const byId = new Map(CONTACTS.map(c=>[c.id,c]));
   const byDay = {};
+  let hidden = 0;
   for (const e of EVENTS){
     const d = e.date.slice(0,10); // YYYY-MM-DD
     if (+d.slice(0,4)!==calY || +d.slice(5,7)-1!==calM) continue;
+    // Imported segments are off by default — 41 realtors landing on one day
+    // otherwise bury the two people who actually matter that week.
+    if (!calSegments && !isNetwork(byId.get(e.contactId))) { hidden++; continue; }
     (byDay[+d.slice(8,10)] ||= []).push(e);
   }
+  const KIND_ORDER = ["added","contacted","follow-up"];
+  const KIND_LABEL = { added:"added", contacted:"talked", "follow-up":"due" };
+  for (const evs of Object.values(byDay))
+    evs.sort((a,b)=>KIND_ORDER.indexOf(evKind(a.kind))-KIND_ORDER.indexOf(evKind(b.kind)));
   const first = new Date(calY, calM, 1).getDay();      // weekday of the 1st
   const days = new Date(calY, calM+1, 0).getDate();     // days in month
   const prevDays = new Date(calY, calM, 0).getDate();
@@ -1271,17 +1342,26 @@ function renderCalendar(){
     const iso = `${calY}-${String(calM+1).padStart(2,"0")}-${String(cell.n).padStart(2,"0")}`;
     const isToday = !cell.other && iso===TODAY;
     const evs = cell.other ? [] : (byDay[cell.n]||[]);
-    const shown = calExpanded.has(iso) ? evs : evs.slice(0,3), extra = evs.length-shown.length;
+    const open = calExpanded.has(iso);
+    const shown = open ? evs : evs.slice(0,3), extra = evs.length-shown.length;
+    const counts = {};
+    for (const e of evs) { const k = evKind(e.kind); counts[k] = (counts[k]||0)+1; }
+    const summary = evs.length > 1
+      ? `<div class="cal-sum">${KIND_ORDER.filter(k=>counts[k])
+          .map(k=>`<b class="${k}">${counts[k]} ${KIND_LABEL[k]}</b>`).join("")}</div>` : "";
     html += `<div class="cal-cell${cell.other?" other":""}${isToday?" today":""}"${cell.other?"":` data-date="${iso}"`}>
       <div class="cal-day">${cell.n}</div>
-      ${shown.map(e=>{ const k=evKind(e.kind); return `<div class="cal-ev ${k}" data-cid="${e.contactId}"${k==="follow-up"?` draggable="true" data-drag="1"`:""} title="${esc(e.kind)}: ${esc(e.text)}${k==="follow-up"?" (drag to reschedule)":""}">${esc(e.contact)}</div>`; }).join("")}
-      ${extra>0?`<div class="cal-more" data-expand="${iso}">+${extra} more</div>`:""}
+      ${summary}
+      ${shown.map(e=>{ const k=evKind(e.kind); return `<div class="cal-ev ${k}" data-cid="${e.contactId}"${k==="follow-up"?` draggable="true" data-drag="1"`:""} title="${esc(KIND_LABEL[k])}: ${esc(e.contact)} - ${esc(e.text)}${k==="follow-up"?" (drag to reschedule)":""}">${esc(e.contact)}</div>`; }).join("")}
+      ${extra>0?`<div class="cal-more" data-expand="${iso}">show all ${evs.length}</div>`:""}
+      ${open&&evs.length>3?`<div class="cal-more" data-collapse="${iso}">show less</div>`:""}
     </div>`;
   }
   html += `</div>`;
   const box = $("#cal"); box.innerHTML = html;
   box.querySelectorAll("[data-cid]").forEach(el=>el.onclick=()=>{ location.hash="#c/"+el.dataset.cid; });
   box.querySelectorAll("[data-expand]").forEach(el=>el.onclick=(e)=>{ e.stopPropagation(); calExpanded.add(el.dataset.expand); renderCalendar(); });
+  box.querySelectorAll("[data-collapse]").forEach(el=>el.onclick=(e)=>{ e.stopPropagation(); calExpanded.delete(el.dataset.collapse); renderCalendar(); });
   // Drag a follow-up (yellow) event onto another day to reschedule that person's next talk.
   let dragCid = null;
   box.querySelectorAll('.cal-ev[data-drag]').forEach(el=>{
@@ -1302,7 +1382,9 @@ function renderCalendar(){
     });
   });
   const total = Object.values(byDay).reduce((n,a)=>n+a.length,0);
-  $("#stat").textContent = `${total} event${total===1?"":"s"} this month`;
+  const added = Object.values(byDay).flat().filter(e=>evKind(e.kind)==="added").length;
+  $("#stat").textContent = `${added} added · ${total} event${total===1?"":"s"} this month`
+    + (hidden ? ` · ${hidden} imported hidden` : "");
 }
 function calShift(delta){ const d=new Date(calY,calM+delta,1); calY=d.getFullYear(); calM=d.getMonth(); renderCalendar(); }
 function calToday(){ calY=+TODAY.slice(0,4); calM=+TODAY.slice(5,7)-1; renderCalendar(); }
@@ -2021,6 +2103,7 @@ $("#sort").addEventListener("change",e=>{sortBy=e.target.value;renderContacts();
 
 $("#calNav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
   b.dataset.cal==="today"?calToday():calShift(b.dataset.cal==="next"?1:-1);});
+$("#calSegments").addEventListener("change",e=>{ calSegments = e.target.checked; renderCalendar(); });
 $("#newBtn").addEventListener("click",()=>{ location.hash = "#new"; });
 $("#newListBtn").addEventListener("click",newList);
 $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.hash="#contacts"; });
