@@ -40,3 +40,11 @@ migrations_dir = "migrations"
 binding = "API_KEY_STORE"
 store_id = "743bff236e564457b2b703e8464bc81f"
 secret_name = "AGENTIC_CONTACTS_API_KEY"
+
+# Nightly at 20:47 UTC (23:47 Israel) — late enough that "today" is over.
+# Counts the day's networking and reports it to the Kompany canvas.
+[triggers]
+crons = ["47 20 * * *"]
+
+[vars]
+KOMPANY_MACHINE_ID = "0df73119-7c48-4bcd-bb86-3f141b4f239c"

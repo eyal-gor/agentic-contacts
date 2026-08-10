@@ -28,6 +28,18 @@ export interface Env {
    *  token; the key above stays the machine credential. Optional so the API
    *  keeps working key-only until the secret is set. */
   APP_PASSWORD?: string;
+  /** Kompany, where the business is actually steered from. The nightly cron
+   *  reports the day's networking onto a machine there, so outreach carries a
+   *  number and a target instead of a feeling. All optional: without them the
+   *  push is skipped and everything else works unchanged. */
+  KOMPANY_API_KEY?: string;
+  KOMPANY_MACHINE_ID?: string;
+  KOMPANY_URL?: string;
+  /** Google OAuth client, for signing the one allowed person in. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  /** The single Google account permitted. Defaults to Eyal's. */
+  ALLOWED_EMAIL?: string;
 }
 
 /** JSON text column → array. Tolerates NULL and legacy non-array values. */
