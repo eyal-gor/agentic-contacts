@@ -269,29 +269,9 @@
   #viewCanvas { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #viewCanvas.hide { display: none; }
   .cv-wrap { position: relative; flex: 1; min-height: 0; overflow: hidden; }
-  .cv-stage { position: absolute; inset: 0; }
-  .cv-node { position: absolute; transform: translate(-50%,-50%); animation: cvFloat 7s ease-in-out infinite; }
-  @keyframes cvFloat { 0%,100% { margin-top: 0 } 50% { margin-top: -6px } }
-  .cv-dot { border-radius: 50%; cursor: pointer; display: block;
-    background: color-mix(in srgb, var(--k) 26%, transparent);
-    border: 1.5px solid color-mix(in srgb, var(--k) 62%, transparent);
-    transition: transform .12s ease, box-shadow .12s ease; }
-  /* Hold still while being aimed at — a drifting target is annoying to click. */
-  .cv-node:hover, .cv-node.sel { animation-play-state: paused; }
-  .cv-node:hover { z-index: 6; }
-  .cv-node:hover .cv-dot { transform: scale(1.18); }
-  .cv-node.sel { z-index: 7; }
-  .cv-node.sel .cv-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--k) 40%, transparent); }
-  .cv-node.dim { opacity: .18; }
-  .cv-name { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap;
-    font-size: 10px; color: var(--muted); margin-top: 2px; pointer-events: none; }
-  .cv-node:hover .cv-name, .cv-node.sel .cv-name { color: var(--text); font-weight: 600; }
-  .cv-blob { position: absolute; border-radius: 44%; pointer-events: none;
-    background: color-mix(in srgb, var(--k) 7%, transparent); }
-  .cv-glabel { position: absolute; transform: translate(-50%,-50%); pointer-events: none; text-align: center;
-    font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--k); opacity: .85; }
-  .cv-glabel i { display: block; font-style: normal; font-size: 10px; letter-spacing: 0;
-    text-transform: none; color: var(--faint); font-weight: 500; }
+  #cvCanvas { position: absolute; inset: 0; display: block; cursor: grab; touch-action: none; }
+  #cvCanvas:active { cursor: grabbing; }
+  .cv-card.hide { display: none; }
   .cv-card { position: absolute; width: 258px; background: var(--elevated); border: 1px solid var(--border);
     border-radius: 10px; padding: 11px 13px; z-index: 30; box-shadow: 0 14px 38px rgba(0,0,0,.34); }
   html[data-theme="light"] .cv-card { box-shadow: 0 14px 38px rgba(20,22,40,.16); }
@@ -658,9 +638,13 @@
         <label class="cal-toggle"><input type="checkbox" id="cvImports">imports</label>
         <span id="cvStat" class="muted"></span>
         <div class="grow"></div>
-        <span class="cv-hint">hover to peek · click to pin · click again for the full profile</span>
+        <button class="btn ghost" id="cvFitBtn">Fit</button>
+        <span class="cv-hint">scroll to zoom · drag to pan · drag a person to move them · click to pin</span>
       </div>
-      <div class="cv-wrap" id="cvWrap"><div class="cv-stage" id="cvStage"></div></div>
+      <div class="cv-wrap" id="cvWrap">
+        <canvas id="cvCanvas"></canvas>
+        <div class="cv-card hide" id="cvCard"></div>
+      </div>
     </section>
 
     <section id="viewLists" class="scroll hide">
@@ -1377,11 +1361,15 @@ function draftFor(c){
 }
 
 /* ---------- Canvas view ---------- */
-// People as floating circles, grouped into the worlds they came from. The layout is
-// a small relaxation pass — pull each person toward their cluster centre, push them
-// off whoever they overlap — seeded from the contact id so the same network settles
-// the same way every time instead of reshuffling on each render.
+// The network on a real <canvas>: every person is a body in a running simulation,
+// pulled toward the world they came from and pushed off whoever they crowd. It
+// never freezes into a layout — it drifts, so the shape of the network reads as
+// something alive rather than a chart. Wheel zooms, drag pans, drag a person to
+// move them, hover peeks, click pins, click again opens the profile.
 let cvGroupBy = "source", cvImports = false, cvSel = null;
+let cvNodes = [], cvGroups = [], cvRaf = 0, cvFrame = 0;
+let cvCam = { x: 0, y: 0, k: 1 };
+let cvHover = null, cvDrag = null, cvPan = null, cvMoved = false, cvInk = {};
 
 function cvGroupOf(c){
   const tags = c.tags || [], has = t => tags.includes(t);
@@ -1405,96 +1393,218 @@ function cvGroupOf(c){
 }
 const CV_HUES = ["#5e6ad2","#4c9aff","#4cc38a","#e0c150","#b28bff","#f0955a","#2dd4bf","#f472b6","#eb5757","#8a8f98"];
 const cvSeed = id => { let h=0; for (let i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))|0; return Math.abs(h); };
-// Closer circles sit bigger, and anyone actually talked to gets a little more weight.
+// Closer circles sit bigger, and anyone actually talked to carries a little more weight.
 const cvRadius = c => 13 + ({"1":8,"2":5,"3":3}[circleOf(c)] || 0) + (c.lastInteraction ? 3 : 0);
 
-function renderCanvas(){
-  const wrap = $("#cvWrap"), stage = $("#cvStage");
-  const W = wrap.clientWidth || 900, H = wrap.clientHeight || 600;
-  const people = CONTACTS.filter(c => (cvImports || isNetwork(c)) && matchesSearch(c));
+// Theme lives in CSS variables; the canvas can't inherit them, so sample once per build.
+function cvReadInk(){
+  const s = getComputedStyle(document.documentElement);
+  const v = n => s.getPropertyValue(n).trim();
+  cvInk = { text: v("--text"), muted: v("--muted"), faint: v("--faint"), surface: v("--surface") };
+}
 
+function cvBuild(){
+  const people = CONTACTS.filter(c => (cvImports || isNetwork(c)) && matchesSearch(c));
   const buckets = new Map();
   for (const c of people){ const g = cvGroupOf(c); if (!buckets.has(g)) buckets.set(g, []); buckets.get(g).push(c); }
-  const groups = [...buckets.entries()].sort((a,b)=>b[1].length-a[1].length);
-  $("#cvStat").textContent = `${people.length} people · ${groups.length} group${groups.length===1?"":"s"}`;
-  if (!people.length){ stage.innerHTML = `<div class="empty" style="padding-top:60px">Nobody matches.</div>`; return; }
+  const entries = [...buckets.entries()].sort((a,b)=>b[1].length-a[1].length);
+  $("#cvStat").textContent = `${people.length} people · ${entries.length} group${entries.length===1?"":"s"}`;
 
-  const n = groups.length;
-  const cols = Math.max(1, Math.min(n, Math.round(Math.sqrt(n * W / Math.max(H,1))) || 1));
-  const rows = Math.ceil(n / cols), cw = W / cols, ch = H / rows;
-  const nodes = [];
-  groups.forEach(([, members], gi) => {
-    const cx = (gi % cols + .5) * cw, cy = (Math.floor(gi / cols) + .5) * ch + 8;
-    for (const c of members){
-      const s = cvSeed(c.id), ang = (s % 628) / 100, rad = ((s >> 3) % 1000) / 1000 * Math.min(cw, ch) * .26;
-      nodes.push({ c, g: gi, gx: cx, gy: cy, x: cx + Math.cos(ang)*rad, y: cy + Math.sin(ang)*rad, r: cvRadius(c) });
+  // Cluster centres on a ring, sized so the blobs just clear each other — a ring
+  // keeps every world equally reachable instead of burying the small ones in a
+  // grid corner, and deriving its radius from the actual blobs stops it from
+  // flinging nine clusters across an empty field.
+  const n = entries.length;
+  const radii = entries.map(([, m]) => Math.max(54, Math.sqrt(m.length) * 26));
+  const need = radii.reduce((s, r) => s + 2*r + 74, 0);
+  const ring = Math.max(Math.max(...radii) * 1.7, need / (2 * Math.PI));
+  cvGroups = entries.map(([name, members], i) => {
+    const a = -Math.PI/2 + (i / Math.max(n,1)) * Math.PI * 2;
+    return { name, size: members.length, hue: CV_HUES[i % CV_HUES.length],
+             x: n === 1 ? 0 : Math.cos(a) * ring, y: n === 1 ? 0 : Math.sin(a) * ring * .82,
+             r: radii[i], members };
+  });
+  cvNodes = [];
+  cvGroups.forEach((g, gi) => {
+    for (const c of g.members){
+      const s = cvSeed(c.id), ang = (s % 628) / 100, rad = ((s >> 3) % 1000) / 1000 * g.r * .8;
+      cvNodes.push({ c, g: gi, r: cvRadius(c),
+        x: g.x + Math.cos(ang)*rad, y: g.y + Math.sin(ang)*rad, vx: 0, vy: 0,
+        ph: (s % 1000) / 1000 * Math.PI * 2 });   // phase, so nobody drifts in lockstep
     }
   });
+  cvReadInk();
+  cvFit();
+}
 
-  // relax: 140 passes is well past settling for a few hundred nodes
-  const pad = 24;
-  for (let it = 0; it < 140; it++){
-    for (const p of nodes){ p.x += (p.gx - p.x) * .045; p.y += (p.gy - p.y) * .045; }
-    for (let i = 0; i < nodes.length; i++) for (let j = i+1; j < nodes.length; j++){
-      const a = nodes[i], b = nodes[j];
-      let dx = b.x - a.x, dy = b.y - a.y;
-      const min = a.r + b.r + (a.g === b.g ? 10 : 30), d2 = dx*dx + dy*dy;
-      if (d2 >= min*min || d2 === 0) continue;
-      const d = Math.sqrt(d2), push = (min - d) / d * .5;
-      dx *= push; dy *= push; a.x -= dx; a.y -= dy; b.x += dx; b.y += dy;
-    }
-    for (const p of nodes){
-      p.x = Math.max(pad, Math.min(W - pad, p.x));
-      p.y = Math.max(pad + 16, Math.min(H - pad, p.y));
-    }
-  }
+// Frame the whole network, then leave the camera alone — zoom is the user's.
+function cvFit(){
+  const wrap = $("#cvWrap"); if (!wrap || !cvNodes.length) return;
+  const W = wrap.clientWidth || 900, H = wrap.clientHeight || 600, pad = 48;
+  let x0=1e9, y0=1e9, x1=-1e9, y1=-1e9;
+  for (const g of cvGroups){ x0=Math.min(x0,g.x-g.r); x1=Math.max(x1,g.x+g.r);
+                             y0=Math.min(y0,g.y-g.r-24); y1=Math.max(y1,g.y+g.r); }
+  const k = Math.min((W-pad*2)/Math.max(x1-x0,1), (H-pad*2)/Math.max(y1-y0,1), 1.4);
+  cvCam.k = k;
+  cvCam.x = W/2 - ((x0+x1)/2) * k;
+  cvCam.y = H/2 - ((y0+y1)/2) * k;
+}
 
-  const withNames = nodes.length <= 130;   // past that the labels collide into noise
-  let html = "";
-  groups.forEach(([name, members], gi) => {
-    const mine = nodes.filter(p => p.g === gi);
-    const xs = mine.map(p=>p.x), ys = mine.map(p=>p.y), rs = Math.max(...mine.map(p=>p.r));
-    const x0 = Math.min(...xs) - rs - 16, x1 = Math.max(...xs) + rs + 16;
-    const y0 = Math.min(...ys) - rs - 16, y1 = Math.max(...ys) + rs + 16;
-    const hue = CV_HUES[gi % CV_HUES.length];
-    html += `<div class="cv-blob" style="--k:${hue};left:${x0}px;top:${y0}px;width:${x1-x0}px;height:${y1-y0}px"></div>`
-         +  `<div class="cv-glabel" style="--k:${hue};left:${(x0+x1)/2}px;top:${y0-4}px">${esc(name)}<i>${members.length}</i></div>`;
-  });
+function cvStep(){
+  cvFrame++;
+  const nodes = cvNodes;
   for (const p of nodes){
-    const hue = CV_HUES[p.g % CV_HUES.length], c = p.c;
-    html += `<div class="cv-node${cvSel===c.id?" sel":""}" data-id="${c.id}" style="--k:${hue};left:${p.x}px;top:${p.y}px">
-      <span class="cv-dot" style="width:${p.r*2}px;height:${p.r*2}px"></span>
-      ${withNames?`<span class="cv-name" style="top:${p.r*2}px">${esc(c.name.split(" ")[0])}</span>`:""}
-    </div>`;
+    const g = cvGroups[p.g];
+    // home pull, plus a slow orbit so the cluster breathes instead of setting solid
+    p.vx += (g.x - p.x) * .0055;
+    p.vy += (g.y - p.y) * .0055;
+    p.vx += Math.cos(cvFrame * .006 + p.ph) * .035;
+    p.vy += Math.sin(cvFrame * .0075 + p.ph) * .035;
   }
-  stage.innerHTML = html;
-
-  for (const el of stage.querySelectorAll(".cv-node")){
-    const id = el.dataset.id;
-    el.addEventListener("mouseenter", ()=>{ if (!cvSel) cvShowCard(id, el); });
-    el.addEventListener("mouseleave", ()=>{ if (!cvSel) cvHideCard(); });
-    el.addEventListener("click", (e)=>{
-      e.stopPropagation();
-      if (cvSel === id) { location.hash = "#c/" + id; return; }   // second click → full profile
-      cvSel = id; renderCanvas();
-      cvShowCard(id, stage.querySelector(`.cv-node[data-id="${id}"]`));
-    });
+  for (let i=0;i<nodes.length;i++) for (let j=i+1;j<nodes.length;j++){
+    const a = nodes[i], b = nodes[j];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const min = a.r + b.r + (a.g === b.g ? 7 : 22), d2 = dx*dx + dy*dy;
+    if (d2 >= min*min || d2 === 0) continue;
+    const d = Math.sqrt(d2), f = (min - d) / d * .16;
+    dx *= f; dy *= f;
+    a.vx -= dx; a.vy -= dy; b.vx += dx; b.vy += dy;
   }
-  if (cvSel){
-    const el = stage.querySelector(`.cv-node[data-id="${cvSel}"]`);
-    if (el) cvShowCard(cvSel, el); else cvSel = null;
+  for (const p of nodes){
+    if (p === cvDrag) { p.vx = p.vy = 0; continue; }   // a held person stays put
+    p.vx *= .88; p.vy *= .88;
+    p.x += p.vx; p.y += p.vy;
   }
 }
-function cvHideCard(){ const c = $("#cvStage").querySelector(".cv-card"); if (c) c.remove(); }
-function cvShowCard(id, el){
-  cvHideCard();
-  const c = CONTACTS.find(x=>x.id===id); if (!c || !el) return;
-  const stage = $("#cvStage"), W = stage.clientWidth, H = stage.clientHeight;
-  const x = parseFloat(el.style.left), y = parseFloat(el.style.top), r = cvRadius(c);
+
+function cvDraw(){
+  const cvs = $("#cvCanvas"), wrap = $("#cvWrap"); if (!cvs || !wrap) return;
+  const W = wrap.clientWidth, H = wrap.clientHeight, dpr = devicePixelRatio || 1;
+  if (cvs.width !== W*dpr || cvs.height !== H*dpr){ cvs.width = W*dpr; cvs.height = H*dpr; cvs.style.width = W+"px"; cvs.style.height = H+"px"; }
+  const g = cvs.getContext("2d");
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,W,H);
+  g.translate(cvCam.x, cvCam.y); g.scale(cvCam.k, cvCam.k);
+
+  // cluster halos + titles
+  for (const gr of cvGroups){
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    for (const p of cvNodes) if (cvGroups[p.g] === gr){
+      x0=Math.min(x0,p.x-p.r); x1=Math.max(x1,p.x+p.r);
+      y0=Math.min(y0,p.y-p.r); y1=Math.max(y1,p.y+p.r);
+    }
+    if (x0 > x1) continue;
+    const cx=(x0+x1)/2, cy=(y0+y1)/2, rx=(x1-x0)/2+26, ry=(y1-y0)/2+26;
+    g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+    g.fillStyle = gr.hue + "14"; g.fill();
+    g.strokeStyle = gr.hue + "26"; g.lineWidth = 1/cvCam.k; g.stroke();
+    g.fillStyle = gr.hue; g.textAlign = "center";
+    g.font = "600 12px Inter, -apple-system, sans-serif";
+    g.fillText(gr.name.toUpperCase(), cx, y0 - 30);
+    g.fillStyle = cvInk.faint; g.font = "500 11px Inter, -apple-system, sans-serif";
+    g.fillText(gr.size, cx, y0 - 16);
+  }
+
+  const names = cvCam.k > .55;
+  for (const p of cvNodes){
+    const hue = cvGroups[p.g].hue, on = p === cvHover || p.c.id === cvSel;
+    g.beginPath(); g.arc(p.x, p.y, p.r * (on ? 1.14 : 1), 0, Math.PI*2);
+    g.fillStyle = hue + (on ? "66" : "3d"); g.fill();
+    g.strokeStyle = hue + (on ? "ff" : "9e"); g.lineWidth = (on ? 2.2 : 1.4)/cvCam.k; g.stroke();
+    if (p.c.id === cvSel){
+      g.beginPath(); g.arc(p.x, p.y, p.r + 6, 0, Math.PI*2);
+      g.strokeStyle = hue + "55"; g.lineWidth = 2/cvCam.k; g.stroke();
+    }
+    if (names){
+      g.fillStyle = on ? cvInk.text : cvInk.muted;
+      g.font = (on ? "600 " : "") + "11px Inter, -apple-system, sans-serif";
+      g.textAlign = "center";
+      g.fillText(p.c.name.split(" ")[0], p.x, p.y + p.r + 12);
+    }
+  }
+}
+
+function cvLoop(){
+  if (view !== "canvas"){ cvRaf = 0; return; }   // idle views cost nothing
+  cvStep(); cvDraw();
+  cvRaf = requestAnimationFrame(cvLoop);
+}
+function renderCanvas(){
+  cvBuild();
+  if (cvSel) cvCardFor(cvSel);
+  if (!cvRaf) cvRaf = requestAnimationFrame(cvLoop);
+}
+
+/* ── pointer: screen ⇄ world, hit-testing, pan/zoom/drag ── */
+const cvToWorld = (sx, sy) => ({ x: (sx - cvCam.x) / cvCam.k, y: (sy - cvCam.y) / cvCam.k });
+function cvAt(sx, sy){
+  const w = cvToWorld(sx, sy);
+  for (let i = cvNodes.length - 1; i >= 0; i--){
+    const p = cvNodes[i], dx = w.x - p.x, dy = w.y - p.y;
+    if (dx*dx + dy*dy <= (p.r+3)*(p.r+3)) return p;
+  }
+  return null;
+}
+function cvBindPointer(){
+  const cvs = $("#cvCanvas");
+  const local = e => { const b = cvs.getBoundingClientRect(); return [e.clientX-b.left, e.clientY-b.top]; };
+
+  cvs.addEventListener("mousedown", e => {
+    const [x,y] = local(e); const hit = cvAt(x,y);
+    cvMoved = false;
+    if (hit) cvDrag = hit; else cvPan = { x, y, cx: cvCam.x, cy: cvCam.y };
+  });
+  addEventListener("mousemove", e => {
+    if (!cvs.isConnected) return;
+    const [x,y] = local(e);
+    if (cvDrag){ const w = cvToWorld(x,y); cvDrag.x = w.x; cvDrag.y = w.y; cvMoved = true; return; }
+    if (cvPan){ cvCam.x = cvPan.cx + (x - cvPan.x); cvCam.y = cvPan.cy + (y - cvPan.y); cvMoved = true; cvCardReposition(); return; }
+    if (view !== "canvas") return;
+    const hit = cvAt(x,y);
+    if (hit !== cvHover){
+      cvHover = hit;
+      cvs.style.cursor = hit ? "pointer" : "grab";
+      if (!cvSel){ hit ? cvCardFor(hit.c.id) : cvCardHide(); }
+    }
+  });
+  addEventListener("mouseup", e => {
+    const wasDrag = cvDrag, moved = cvMoved;
+    cvDrag = null; cvPan = null;
+    if (!cvs.isConnected || moved) return;
+    const [x,y] = local(e); const hit = cvAt(x,y);
+    if (!hit){ if (cvSel){ cvSel = null; cvCardHide(); } return; }
+    if (cvSel === hit.c.id) { location.hash = "#c/" + hit.c.id; return; }  // second click → profile
+    cvSel = hit.c.id; cvCardFor(cvSel);
+    void wasDrag;
+  });
+  cvs.addEventListener("wheel", e => {
+    e.preventDefault();
+    const [x,y] = local(e);
+    const before = cvToWorld(x,y);
+    cvCam.k = Math.max(.25, Math.min(3, cvCam.k * (e.deltaY < 0 ? 1.12 : 1/1.12)));
+    cvCam.x = x - before.x * cvCam.k;
+    cvCam.y = y - before.y * cvCam.k;
+    cvCardReposition();
+  }, { passive: false });
+}
+
+/* ── the profile card is HTML, floated over the canvas ── */
+function cvCardHide(){ const el = $("#cvCard"); if (el) el.classList.add("hide"); }
+function cvCardReposition(){
+  const el = $("#cvCard"); if (!el || el.classList.contains("hide")) return;
+  const p = cvNodes.find(n => n.c.id === el.dataset.id); if (!p) return cvCardHide();
+  const wrap = $("#cvWrap"), W = wrap.clientWidth, H = wrap.clientHeight;
+  const sx = p.x * cvCam.k + cvCam.x, sy = p.y * cvCam.k + cvCam.y, r = p.r * cvCam.k;
+  const cw = 258, ch = el.offsetHeight || 150;
+  el.style.left = (sx + r + 12 + cw > W ? Math.max(4, sx - r - 12 - cw) : sx + r + 12) + "px";
+  el.style.top  = Math.max(4, Math.min(H - ch - 4, sy - 28)) + "px";
+}
+function cvCardFor(id){
+  const c = CONTACTS.find(x => x.id === id); if (!c) return cvCardHide();
+  const el = $("#cvCard");
   const circle = circleOf(c), last = lastDate(c);
-  const card = document.createElement("div");
-  card.className = "cv-card";
-  card.innerHTML = `
+  el.dataset.id = id;
+  el.innerHTML = `
     <h4>${esc(c.name)}</h4>
     <div class="sub">${[c.title, c.company].filter(Boolean).map(esc).join(" · ") || cvGroupOf(c)}</div>
     <div class="tags">
@@ -1508,15 +1618,11 @@ function cvShowCard(id, el){
       <button class="btn" data-open>Full profile</button>
       ${c.linkedin?`<button class="btn ghost" data-li>LinkedIn ↗</button>`:""}
     </div>`;
-  // keep the card on stage: flip to the left, and lift it, when it would run off
-  const cardW = 258, cardH = c.notes ? 200 : 140;
-  card.style.left = (x + r + 12 + cardW > W ? Math.max(4, x - r - 12 - cardW) : x + r + 12) + "px";
-  card.style.top  = Math.max(4, Math.min(H - cardH - 4, y - 30)) + "px";
-  card.addEventListener("click", e=>e.stopPropagation());
-  card.querySelector("[data-open]").onclick = ()=>{ location.hash = "#c/" + id; };
-  const li = card.querySelector("[data-li]");
+  el.classList.remove("hide");
+  el.querySelector("[data-open]").onclick = ()=>{ location.hash = "#c/" + id; };
+  const li = el.querySelector("[data-li]");
   if (li) li.onclick = ()=> window.open(c.linkedin, "_blank", "noopener");
-  stage.appendChild(card);
+  cvCardReposition();
 }
 
 /* ---------- Calendar view ---------- */
@@ -2320,8 +2426,9 @@ $("#calSegments").addEventListener("change",e=>{ calSegments = e.target.checked;
 $("#cImports").addEventListener("change",e=>{ cImports = e.target.checked; renderActive(); });
 $("#cvGroupBy").addEventListener("change",e=>{ cvGroupBy = e.target.value; cvSel = null; renderCanvas(); });
 $("#cvImports").addEventListener("change",e=>{ cvImports = e.target.checked; cvSel = null; renderCanvas(); });
-$("#cvStage").addEventListener("click", ()=>{ if (cvSel){ cvSel = null; renderCanvas(); } });
-addEventListener("resize", ()=>{ if (view === "canvas") renderCanvas(); });
+$("#cvFitBtn").addEventListener("click", ()=>{ cvFit(); cvCardReposition(); });
+addEventListener("resize", ()=>{ if (view === "canvas"){ cvFit(); cvCardReposition(); } });
+cvBindPointer();
 $("#newBtn").addEventListener("click",()=>{ location.hash = "#new"; });
 $("#newListBtn").addEventListener("click",newList);
 $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.hash="#contacts"; });
