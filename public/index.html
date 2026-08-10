@@ -261,6 +261,48 @@
   .cal-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted);
     cursor: pointer; user-select: none; }
 
+  /* ── canvas: people as floating circles, clustered by where they came from ──
+     Each cluster is a loose blob rather than a row, so the shape of the network
+     is visible before any name is read: which worlds are crowded, which are thin. */
+  /* The stage sizes itself from the pane, so the id rule has to out-specify .hide
+     rather than sit inline — an inline display would beat .hide and leak the view. */
+  #viewCanvas { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #viewCanvas.hide { display: none; }
+  .cv-wrap { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  .cv-stage { position: absolute; inset: 0; }
+  .cv-node { position: absolute; transform: translate(-50%,-50%); animation: cvFloat 7s ease-in-out infinite; }
+  @keyframes cvFloat { 0%,100% { margin-top: 0 } 50% { margin-top: -6px } }
+  .cv-dot { border-radius: 50%; cursor: pointer; display: block;
+    background: color-mix(in srgb, var(--k) 26%, transparent);
+    border: 1.5px solid color-mix(in srgb, var(--k) 62%, transparent);
+    transition: transform .12s ease, box-shadow .12s ease; }
+  /* Hold still while being aimed at — a drifting target is annoying to click. */
+  .cv-node:hover, .cv-node.sel { animation-play-state: paused; }
+  .cv-node:hover { z-index: 6; }
+  .cv-node:hover .cv-dot { transform: scale(1.18); }
+  .cv-node.sel { z-index: 7; }
+  .cv-node.sel .cv-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--k) 40%, transparent); }
+  .cv-node.dim { opacity: .18; }
+  .cv-name { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap;
+    font-size: 10px; color: var(--muted); margin-top: 2px; pointer-events: none; }
+  .cv-node:hover .cv-name, .cv-node.sel .cv-name { color: var(--text); font-weight: 600; }
+  .cv-blob { position: absolute; border-radius: 44%; pointer-events: none;
+    background: color-mix(in srgb, var(--k) 7%, transparent); }
+  .cv-glabel { position: absolute; transform: translate(-50%,-50%); pointer-events: none; text-align: center;
+    font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--k); opacity: .85; }
+  .cv-glabel i { display: block; font-style: normal; font-size: 10px; letter-spacing: 0;
+    text-transform: none; color: var(--faint); font-weight: 500; }
+  .cv-card { position: absolute; width: 258px; background: var(--elevated); border: 1px solid var(--border);
+    border-radius: 10px; padding: 11px 13px; z-index: 30; box-shadow: 0 14px 38px rgba(0,0,0,.34); }
+  html[data-theme="light"] .cv-card { box-shadow: 0 14px 38px rgba(20,22,40,.16); }
+  .cv-card h4 { margin: 0 0 2px; font-size: 13px; }
+  .cv-card .sub { color: var(--muted); font-size: 11px; margin-bottom: 7px; }
+  .cv-card .note { color: var(--muted); font-size: 11px; margin: 7px 0 0; line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .cv-card .acts { display: flex; gap: 6px; margin-top: 9px; }
+  .cv-card .acts button { flex: 1; font-size: 11px; padding: 5px 8px; }
+  .cv-hint { color: var(--faint); font-size: 11px; }
+
   /* ── pipeline board ── */
   .board { display: flex; gap: 14px; padding: 16px 18px; overflow-x: auto; align-items: flex-start;
     cursor: grab; overscroll-behavior-x: contain; }
@@ -479,6 +521,7 @@
       <button data-view="today" class="on">Today <span class="navCount" id="navTodayCount"></span></button>
       <button data-view="contacts">Contacts <span class="navCount" id="navContactCount"></span></button>
       <button data-view="companies">Companies <span class="navCount" id="navCompanyCount"></span></button>
+      <button data-view="canvas">Canvas</button>
       <button data-view="calendar">Calendar</button>
       <button data-view="pipeline">Pipeline</button>
       <button data-view="lists">Lists</button>
@@ -602,6 +645,23 @@
     </section>
 
     <!-- LISTS VIEW -->
+    <!-- CANVAS VIEW -->
+    <section id="viewCanvas" class="hide">
+      <div class="toolbar">
+        <select class="flat" id="cvGroupBy">
+          <option value="source">Group: where I know them from</option>
+          <option value="circle">Group: circle</option>
+          <option value="talked">Group: when we last talked</option>
+          <option value="added">Group: when I added them</option>
+        </select>
+        <label class="cal-toggle"><input type="checkbox" id="cvImports">imports</label>
+        <span id="cvStat" class="muted"></span>
+        <div class="grow"></div>
+        <span class="cv-hint">hover to peek · click to pin · click again for the full profile</span>
+      </div>
+      <div class="cv-wrap" id="cvWrap"><div class="cv-stage" id="cvStage"></div></div>
+    </section>
+
     <section id="viewLists" class="scroll hide">
       <div class="toolbar">
         <button class="iconbtn" id="newListBtn">+ New list</button>
@@ -847,6 +907,7 @@ function renderActive(){
   if (view === "today") return renderToday();
   if (view === "pipeline") return renderPipeline();
   if (view === "lists") return renderLists();
+  if (view === "canvas") return renderCanvas();
   if (view === "calendar") return renderCalendar();
   if (view === "companies") return renderCompanies();
   renderContacts();
@@ -1305,6 +1366,149 @@ function draftFor(c){
     default: `Hi ${first}, would genuinely love to hear what you're working on${co?` at ${co}`:""}. ${iBuild}. No agenda - happy to grab a coffee or a call if you're up for it.`,
   };
   return deDash(byAngle[outreachAngle(c)]);
+}
+
+/* ---------- Canvas view ---------- */
+// People as floating circles, grouped into the worlds they came from. The layout is
+// a small relaxation pass — pull each person toward their cluster centre, push them
+// off whoever they overlap — seeded from the contact id so the same network settles
+// the same way every time instead of reshuffling on each render.
+let cvGroupBy = "source", cvImports = false, cvSel = null;
+
+function cvGroupOf(c){
+  const tags = c.tags || [], has = t => tags.includes(t);
+  if (cvGroupBy === "circle"){ const n = circleOf(c); return n ? `Circle ${n}` : "Circle unknown"; }
+  if (cvGroupBy === "added"){ const d = (c.createdAt||"").slice(0,7);
+    return d ? `${MONTHS[+d.slice(5,7)-1]} ${d.slice(0,4)}` : "Unknown"; }
+  if (cvGroupBy === "talked"){ const d = lastDate(c); if (!d) return "Never talked";
+    const days = Math.round((Date.parse(TODAY) - Date.parse(d)) / 86400000);
+    return days<=7 ? "This week" : days<=30 ? "This month" : days<=90 ? "Last 3 months" : "Older"; }
+  // "where I know them from" — first match wins, most specific world first
+  if (tags.some(t=>t.startsWith("segment:"))) return "Imported list";
+  if (has("denver-ai")) return "Denver AI scene";
+  if (has("search-fund") || has("eta")) return "Search funds / ETA";
+  if (has("cfo") || has("finance")) return "CFO network";
+  if (has("israel")) return "Israel network";
+  if (has("cerver")) return "Cerver outreach";
+  if (has("icp:dev") || has("research")) return "Company radar";
+  if (has("recruiting") || has("job")) return "Recruiting";
+  if (has("real-estate")) return "Real estate";
+  return "Unsorted";
+}
+const CV_HUES = ["#5e6ad2","#4c9aff","#4cc38a","#e0c150","#b28bff","#f0955a","#2dd4bf","#f472b6","#eb5757","#8a8f98"];
+const cvSeed = id => { let h=0; for (let i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))|0; return Math.abs(h); };
+// Closer circles sit bigger, and anyone actually talked to gets a little more weight.
+const cvRadius = c => 13 + ({"1":8,"2":5,"3":3}[circleOf(c)] || 0) + (c.lastInteraction ? 3 : 0);
+
+function renderCanvas(){
+  const wrap = $("#cvWrap"), stage = $("#cvStage");
+  const W = wrap.clientWidth || 900, H = wrap.clientHeight || 600;
+  const people = CONTACTS.filter(c => (cvImports || isNetwork(c)) && matchesSearch(c));
+
+  const buckets = new Map();
+  for (const c of people){ const g = cvGroupOf(c); if (!buckets.has(g)) buckets.set(g, []); buckets.get(g).push(c); }
+  const groups = [...buckets.entries()].sort((a,b)=>b[1].length-a[1].length);
+  $("#cvStat").textContent = `${people.length} people · ${groups.length} group${groups.length===1?"":"s"}`;
+  if (!people.length){ stage.innerHTML = `<div class="empty" style="padding-top:60px">Nobody matches.</div>`; return; }
+
+  const n = groups.length;
+  const cols = Math.max(1, Math.min(n, Math.round(Math.sqrt(n * W / Math.max(H,1))) || 1));
+  const rows = Math.ceil(n / cols), cw = W / cols, ch = H / rows;
+  const nodes = [];
+  groups.forEach(([, members], gi) => {
+    const cx = (gi % cols + .5) * cw, cy = (Math.floor(gi / cols) + .5) * ch + 8;
+    for (const c of members){
+      const s = cvSeed(c.id), ang = (s % 628) / 100, rad = ((s >> 3) % 1000) / 1000 * Math.min(cw, ch) * .26;
+      nodes.push({ c, g: gi, gx: cx, gy: cy, x: cx + Math.cos(ang)*rad, y: cy + Math.sin(ang)*rad, r: cvRadius(c) });
+    }
+  });
+
+  // relax: 140 passes is well past settling for a few hundred nodes
+  const pad = 24;
+  for (let it = 0; it < 140; it++){
+    for (const p of nodes){ p.x += (p.gx - p.x) * .045; p.y += (p.gy - p.y) * .045; }
+    for (let i = 0; i < nodes.length; i++) for (let j = i+1; j < nodes.length; j++){
+      const a = nodes[i], b = nodes[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      const min = a.r + b.r + (a.g === b.g ? 10 : 30), d2 = dx*dx + dy*dy;
+      if (d2 >= min*min || d2 === 0) continue;
+      const d = Math.sqrt(d2), push = (min - d) / d * .5;
+      dx *= push; dy *= push; a.x -= dx; a.y -= dy; b.x += dx; b.y += dy;
+    }
+    for (const p of nodes){
+      p.x = Math.max(pad, Math.min(W - pad, p.x));
+      p.y = Math.max(pad + 16, Math.min(H - pad, p.y));
+    }
+  }
+
+  const withNames = nodes.length <= 130;   // past that the labels collide into noise
+  let html = "";
+  groups.forEach(([name, members], gi) => {
+    const mine = nodes.filter(p => p.g === gi);
+    const xs = mine.map(p=>p.x), ys = mine.map(p=>p.y), rs = Math.max(...mine.map(p=>p.r));
+    const x0 = Math.min(...xs) - rs - 16, x1 = Math.max(...xs) + rs + 16;
+    const y0 = Math.min(...ys) - rs - 16, y1 = Math.max(...ys) + rs + 16;
+    const hue = CV_HUES[gi % CV_HUES.length];
+    html += `<div class="cv-blob" style="--k:${hue};left:${x0}px;top:${y0}px;width:${x1-x0}px;height:${y1-y0}px"></div>`
+         +  `<div class="cv-glabel" style="--k:${hue};left:${(x0+x1)/2}px;top:${y0-4}px">${esc(name)}<i>${members.length}</i></div>`;
+  });
+  for (const p of nodes){
+    const hue = CV_HUES[p.g % CV_HUES.length], c = p.c;
+    html += `<div class="cv-node${cvSel===c.id?" sel":""}" data-id="${c.id}" style="--k:${hue};left:${p.x}px;top:${p.y}px">
+      <span class="cv-dot" style="width:${p.r*2}px;height:${p.r*2}px"></span>
+      ${withNames?`<span class="cv-name" style="top:${p.r*2}px">${esc(c.name.split(" ")[0])}</span>`:""}
+    </div>`;
+  }
+  stage.innerHTML = html;
+
+  for (const el of stage.querySelectorAll(".cv-node")){
+    const id = el.dataset.id;
+    el.addEventListener("mouseenter", ()=>{ if (!cvSel) cvShowCard(id, el); });
+    el.addEventListener("mouseleave", ()=>{ if (!cvSel) cvHideCard(); });
+    el.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      if (cvSel === id) { location.hash = "#c/" + id; return; }   // second click → full profile
+      cvSel = id; renderCanvas();
+      cvShowCard(id, stage.querySelector(`.cv-node[data-id="${id}"]`));
+    });
+  }
+  if (cvSel){
+    const el = stage.querySelector(`.cv-node[data-id="${cvSel}"]`);
+    if (el) cvShowCard(cvSel, el); else cvSel = null;
+  }
+}
+function cvHideCard(){ const c = $("#cvStage").querySelector(".cv-card"); if (c) c.remove(); }
+function cvShowCard(id, el){
+  cvHideCard();
+  const c = CONTACTS.find(x=>x.id===id); if (!c || !el) return;
+  const stage = $("#cvStage"), W = stage.clientWidth, H = stage.clientHeight;
+  const x = parseFloat(el.style.left), y = parseFloat(el.style.top), r = cvRadius(c);
+  const circle = circleOf(c), last = lastDate(c);
+  const card = document.createElement("div");
+  card.className = "cv-card";
+  card.innerHTML = `
+    <h4>${esc(c.name)}</h4>
+    <div class="sub">${[c.title, c.company].filter(Boolean).map(esc).join(" · ") || cvGroupOf(c)}</div>
+    <div class="tags">
+      ${circle?`<span class="pill circle c${circle}">${circle}°</span>`:""}
+      <span class="pill">${esc(cvGroupOf(c))}</span>
+      <span class="pill">${last?`last ${last}`:"never talked"}</span>
+      ${c.followUpAt?`<span class="pill next ${nextClass(c.followUpAt)}">next ${c.followUpAt.slice(0,10)}</span>`:""}
+    </div>
+    ${c.notes?`<p class="note">${esc(c.notes)}</p>`:""}
+    <div class="acts">
+      <button class="btn" data-open>Full profile</button>
+      ${c.linkedin?`<button class="btn ghost" data-li>LinkedIn ↗</button>`:""}
+    </div>`;
+  // keep the card on stage: flip to the left, and lift it, when it would run off
+  const cardW = 258, cardH = c.notes ? 200 : 140;
+  card.style.left = (x + r + 12 + cardW > W ? Math.max(4, x - r - 12 - cardW) : x + r + 12) + "px";
+  card.style.top  = Math.max(4, Math.min(H - cardH - 4, y - 30)) + "px";
+  card.addEventListener("click", e=>e.stopPropagation());
+  card.querySelector("[data-open]").onclick = ()=>{ location.hash = "#c/" + id; };
+  const li = card.querySelector("[data-li]");
+  if (li) li.onclick = ()=> window.open(c.linkedin, "_blank", "noopener");
+  stage.appendChild(card);
 }
 
 /* ---------- Calendar view ---------- */
@@ -2038,7 +2242,7 @@ function applyRoute(){
   }
   if ($("#scrim").classList.contains("on")) closeModal();    // any view route closes an open modal
   if (seg === "list" && arg){ listFilter = arg; showView("contacts"); return; }
-  const v = ["today","pipeline","lists","calendar","contacts","companies","settings"].includes(seg) ? seg : "today";
+  const v = ["today","pipeline","lists","calendar","canvas","contacts","companies","settings"].includes(seg) ? seg : "today";
   showView(v);
 }
 // close the modal by navigating back to the current view's URL
@@ -2085,6 +2289,7 @@ function showView(v){
   $("#viewSettings").classList.toggle("hide",v!=="settings");
   $("#viewContacts").classList.toggle("hide",v!=="contacts");
   $("#viewCompanies").classList.toggle("hide",v!=="companies");
+  $("#viewCanvas").classList.toggle("hide",v!=="canvas");
   $("#viewCalendar").classList.toggle("hide",v!=="calendar");
   $("#viewPipeline").classList.toggle("hide",v!=="pipeline");
   $("#viewLists").classList.toggle("hide",v!=="lists");
@@ -2104,6 +2309,10 @@ $("#sort").addEventListener("change",e=>{sortBy=e.target.value;renderContacts();
 $("#calNav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
   b.dataset.cal==="today"?calToday():calShift(b.dataset.cal==="next"?1:-1);});
 $("#calSegments").addEventListener("change",e=>{ calSegments = e.target.checked; renderCalendar(); });
+$("#cvGroupBy").addEventListener("change",e=>{ cvGroupBy = e.target.value; cvSel = null; renderCanvas(); });
+$("#cvImports").addEventListener("change",e=>{ cvImports = e.target.checked; cvSel = null; renderCanvas(); });
+$("#cvStage").addEventListener("click", ()=>{ if (cvSel){ cvSel = null; renderCanvas(); } });
+addEventListener("resize", ()=>{ if (view === "canvas") renderCanvas(); });
 $("#newBtn").addEventListener("click",()=>{ location.hash = "#new"; });
 $("#newListBtn").addEventListener("click",newList);
 $("#clearListFilter").addEventListener("click",()=>{ listFilter=""; location.hash="#contacts"; });
