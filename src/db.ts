@@ -33,7 +33,8 @@ export interface Env {
    *  number and a target instead of a feeling. All optional: without them the
    *  push is skipped and everything else works unchanged. */
   KOMPANY_API_KEY?: string;
-  KOMPANY_MACHINE_ID?: string;
+  KOMPANY_PROSPECTOR_MACHINE_ID?: string;
+  KOMPANY_OUTREACH_MACHINE_ID?: string;
   KOMPANY_URL?: string;
   /** Google OAuth client, for signing the one allowed person in. */
   GOOGLE_CLIENT_ID?: string;

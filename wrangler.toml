@@ -46,5 +46,8 @@ secret_name = "AGENTIC_CONTACTS_API_KEY"
 [triggers]
 crons = ["47 20 * * *"]
 
+# Machines on the Cerver.ai canvas. Prospecting and outreach are separate
+# processes there, so the numbers land on the one that did the work.
 [vars]
-KOMPANY_MACHINE_ID = "0df73119-7c48-4bcd-bb86-3f141b4f239c"
+KOMPANY_PROSPECTOR_MACHINE_ID = "6d952d66-d07f-4c60-91bb-2fdba46fcdce"  # Prospector
+KOMPANY_OUTREACH_MACHINE_ID   = "c2e06f20-c877-4a67-b1f1-da2c0a0b11b0"  # Email Outreach

@@ -78,22 +78,27 @@ export async function computeActivity(db: D1Database, days: number) {
  */
 export async function pushToKompany(env: {
   KOMPANY_API_KEY?: string;
-  KOMPANY_MACHINE_ID?: string;
+  KOMPANY_PROSPECTOR_MACHINE_ID?: string;
+  KOMPANY_OUTREACH_MACHINE_ID?: string;
   KOMPANY_URL?: string;
 }, a: Activity): Promise<{ pushed: number; failed: number }> {
-  const key = env.KOMPANY_API_KEY, machine = env.KOMPANY_MACHINE_ID;
-  if (!key || !machine) return { pushed: 0, failed: 0 };
+  const key = env.KOMPANY_API_KEY;
+  if (!key) return { pushed: 0, failed: 0 };
   const base = env.KOMPANY_URL || "https://kompany.dev";
 
-  const metrics = [
-    { metric_name: "outreach_sent", value: a.today.reachedOut, label: "conversations logged today" },
-    { metric_name: "new_contacts", value: a.today.added, label: "people added today" },
-    { metric_name: "followups_overdue", value: a.totals.followUpsOverdue, label: "follow-ups past due" },
-    { metric_name: "never_contacted", value: a.totals.neverContacted, label: "in the network, never talked to" },
+  // Finding people and talking to them are two different machines on the
+  // canvas, and the numbers belong to whichever one actually did the work —
+  // all four on one tile would read as one process that isn't one.
+  const routed: Array<[string | undefined, { metric_name: string; value: number; label: string }]> = [
+    [env.KOMPANY_PROSPECTOR_MACHINE_ID, { metric_name: "new_contacts", value: a.today.added, label: "people added today" }],
+    [env.KOMPANY_PROSPECTOR_MACHINE_ID, { metric_name: "never_contacted", value: a.totals.neverContacted, label: "found, never talked to" }],
+    [env.KOMPANY_OUTREACH_MACHINE_ID, { metric_name: "outreach_sent", value: a.today.reachedOut, label: "conversations logged today" }],
+    [env.KOMPANY_OUTREACH_MACHINE_ID, { metric_name: "followups_overdue", value: a.totals.followUpsOverdue, label: "follow-ups past due" }],
   ];
 
   let pushed = 0, failed = 0;
-  for (const m of metrics) {
+  for (const [machine, m] of routed) {
+    if (!machine) continue;
     try {
       const r = await fetch(`${base}/api/machines/${machine}/metrics`, {
         method: "POST",
