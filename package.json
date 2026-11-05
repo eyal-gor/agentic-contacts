@@ -2,6 +2,7 @@
   "name": "agentic-contacts",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "API-only contacts service (Agentic Contacts) — Hono on Cloudflare Workers + D1, plus CLI",
   "scripts": {

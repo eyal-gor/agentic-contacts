@@ -61,12 +61,19 @@ to *this* repo — `data/` and `.env` are gitignored.
 | ------ | ---------------- | --------------- | ------------------------------ |
 | GET    | `/health`        | —               | liveness                       |
 | GET    | `/companies`     | —               | `?q=`, `?tag=`, `?status=`, paging |
-| POST   | `/companies`     | `CompanyInput`  | create → 201; `?upsert=1` updates by exact name |
+| POST   | `/companies`     | `CompanyInput`  | create → 201 (+ `possibleDuplicates`); `?upsert=1` updates the match by name **or domain**, 409 if they point at different companies |
+| GET    | `/companies/duplicates` | —        | groups sharing a name or domain |
+| POST   | `/companies/duplicates` | `CompanyInput` or `{id}` | what this would duplicate; writes nothing |
+| POST   | `/companies/merge` | `{ids, keepId?, dryRun?}` | combine into `keepId`; moves contacts |
 | GET    | `/companies/:id` | —               | includes matching contacts     |
 | PATCH  | `/companies/:id` | `CompanyPatch`  | partial update                 |
 | DELETE | `/companies/:id` | —               | 204                            |
-| GET    | `/contacts`      | —               | `?q=`, `?tag=`, `?sort=recent\|stale`, `?due=overdue\|today\|week\|all`, paging |
-| POST   | `/contacts`      | `ContactInput`  | create → 201                   |
+| GET    | `/contacts`      | —               | `?q=`, `?tag=`, `?email=` (exact, any address), `?sort=recent\|stale`, `?due=overdue\|today\|week\|all`, paging |
+| POST   | `/contacts`      | `ContactInput`  | create → 201 (+ `possibleDuplicates`); `?upsert=1` updates the contact sharing an email/LinkedIn (200), 409 if two do |
+| GET    | `/contacts/duplicates` | —         | groups sharing an email, LinkedIn or name (`strong` = not just a name) |
+| POST   | `/contacts/duplicates` | `ContactInput` or `{id}` | what this would duplicate; writes nothing |
+| POST   | `/contacts/merge` | `{ids, keepId?, dryRun?}` | combine into `keepId` (default first); moves interactions |
+| POST   | `/maintenance/reindex` | —         | rebuild the duplicate-match index |
 | GET    | `/contacts/:id`  | —               | 404 if missing                 |
 | PATCH  | `/contacts/:id`  | `ContactPatch`  | partial update                 |
 | DELETE | `/contacts/:id`  | —               | 204; cascades interactions     |
@@ -85,6 +92,21 @@ to *this* repo — `data/` and `.env` are gitignored.
 
 Set `API_KEY` in `.env` to require `Authorization: Bearer <key>` on `/contacts*`, `/companies*`, and `/lists*`.
 Left empty, the API is open (dev mode).
+
+### Duplicates and the primary email
+
+Borrowed from Twenty CRM (see `TWENTY-LESSONS.md`). A contact matches another on
+any one of **email** (primary or additional), **LinkedIn** (normalized:
+`linkedin.com/in/Ada-L/?x` = `in/ada-l`) or **name**. A company matches on
+**name** or **domain**. Email/LinkedIn/domain are *strong*; a shared name alone
+is only *possible*, so upsert never merges on a name.
+
+`emails[0]` is the primary email; every contact also returns `primaryEmail`,
+and you can send `primaryEmail` to promote an address. Merging keeps the
+chosen record's values, fills its gaps from the others, combines emails/
+phones/tags, joins notes, and moves history before deleting the rest. Always
+`dryRun: true` first. CLI: `add --upsert`, `dupes [--companies]`,
+`merge <ids...> [--keep id] [--yes]`.
 
 ## Layout
 

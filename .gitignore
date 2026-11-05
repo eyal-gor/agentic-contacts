@@ -2,3 +2,8 @@ node_modules
 dist
 data
 .env
+reference/
+
+# Local-only state and secrets: never in the public repo
+.dev.vars
+.wrangler/

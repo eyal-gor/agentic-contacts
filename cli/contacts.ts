@@ -180,8 +180,9 @@ program
   .option("-t, --tag <tag...>", "tag(s)")
   .option("--notes <notes>", "free-text notes")
   .option("--linkedin <url>", "LinkedIn profile URL")
+  .option("--upsert", "update the existing contact with the same email or LinkedIn instead of adding a copy")
   .action(async (opts) => {
-    const created = await api("/contacts", {
+    const created = await api(`/contacts${opts.upsert ? "?upsert=1" : ""}`, {
       method: "POST",
       body: JSON.stringify({
         name: opts.name,
@@ -195,7 +196,50 @@ program
         linkedin: opts.linkedin,
       }),
     });
-    console.log("Created:", created.id);
+    if (created.upsert?.action === "updated") {
+      const on = created.upsert.matchedOn.map((k: any) => `${k.kind} ${k.value}`).join(", ");
+      console.log(`Updated existing: ${created.id} (matched on ${on})`);
+    } else console.log("Created:", created.id);
+    for (const d of created.possibleDuplicates ?? []) {
+      const on = d.matchedOn.map((k: any) => `${k.kind} ${k.value}`).join(", ");
+      console.log(`  possible duplicate: ${d.id} (${on}) - review with: dupes, then merge`);
+    }
+  });
+
+// --- Duplicates + merge -----------------------------------------------------
+program
+  .command("dupes")
+  .description("list groups of contacts (or companies) that look like the same record")
+  .option("--companies", "check companies instead of contacts")
+  .action(async (opts) => {
+    const kind = opts.companies ? "companies" : "contacts";
+    const data = await api(`/${kind}/duplicates`);
+    if (!data.count) return console.log(`No duplicate ${kind}.`);
+    console.log(`${data.count} duplicate group(s):`);
+    for (const g of data.groups) {
+      const on = [...new Set(g.matchedOn.map((k: any) => `${k.kind} ${k.value}`))].join(", ");
+      console.log(`\n[${g.strong ? "same" : "maybe"}] matched on ${on}`);
+      for (const r of g[kind]) console.log(`  ${r.id}  ${r.name}${r.primaryEmail ? `  <${r.primaryEmail}>` : ""}`);
+    }
+  });
+
+program
+  .command("merge <ids...>")
+  .description("merge records into one; the first id (or --keep) wins conflicts. Previews unless --yes")
+  .option("--keep <id>", "the record to keep (default: first id)")
+  .option("--companies", "merge companies instead of contacts")
+  .option("--yes", "actually merge (without it, this is a dry run)")
+  .action(async (ids: string[], opts) => {
+    const kind = opts.companies ? "companies" : "contacts";
+    const res = await api(`/${kind}/merge`, {
+      method: "POST",
+      body: JSON.stringify({ ids, keepId: opts.keep, dryRun: !opts.yes }),
+    });
+    console.log(JSON.stringify(res.kept, null, 2));
+    const moved = res.interactionsMoved ?? res.contactsMoved ?? 0;
+    const what = kind === "contacts" ? "interaction(s)" : "contact(s)";
+    console.log(`${opts.yes ? "Merged" : "Would merge"}: keep ${res.kept.id}, delete ${res.deleted.join(", ")}, move ${moved} ${what}.`);
+    if (!opts.yes) console.log("Dry run. Re-run with --yes to merge.");
   });
 
 program.command("get <id>").action(async (id) => {

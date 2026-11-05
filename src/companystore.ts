@@ -1,5 +1,10 @@
 import type { Company, CompanyInputT, CompanyPatchT } from "./schema.js";
 import { jsonList, toJson, buildSet } from "./db.js";
+import { companyKeys, writeKeys, deleteKeys, findMatches, STRONG } from "./keys.js";
+
+async function reindex(db: D1Database, c: Company | null) {
+  if (c) await writeKeys(db, "company", c.id, companyKeys(c));
+}
 
 // D1-backed company store. `upsertByName` is the one Company Radar calls
 // (POST /companies?upsert=1), so it stays idempotent by folded name.
@@ -97,6 +102,7 @@ export async function create(db: D1Database, input: CompanyInputT): Promise<Comp
       company.updatedAt,
     )
     .run();
+  await reindex(db, company);
   return company;
 }
 
@@ -110,24 +116,45 @@ export async function update(db: D1Database, id: string, patch: CompanyPatchT): 
     ? `UPDATE companies SET ${clause}, updatedAt = ? WHERE id = ?`
     : "UPDATE companies SET updatedAt = ? WHERE id = ?";
   await db.prepare(sql).bind(...values, updatedAt, id).run();
-  return get(db, id);
+  const updated = await get(db, id);
+  await reindex(db, updated);
+  return updated;
 }
 
+export class AmbiguousMatch extends Error {
+  constructor(public candidates: { id: string; matchedOn: unknown }[]) {
+    super("input matches more than one existing record");
+  }
+}
+
+/**
+ * Upsert by name OR domain (Twenty's company duplicateCriteria). Matching two
+ * different companies — name hits one, domain another — throws
+ * AmbiguousMatch rather than guessing; merge them first.
+ */
 export async function upsertByName(db: D1Database, input: CompanyInputT): Promise<Company> {
-  const existing = await findByName(db, input.name);
+  const strong = (await findMatches(db, "company", companyKeys(input))).filter((m) =>
+    m.matchedOn.some((k) => STRONG.company.includes(k.kind)),
+  );
+  if (strong.length > 1) throw new AmbiguousMatch(strong);
+  const existing = strong.length ? await get(db, strong[0].id) : null;
   if (!existing) return create(db, input);
   // Union the tags so a re-scan adds labels instead of dropping earlier ones.
   const patch: CompanyPatchT = {
     ...input,
     tags: [...new Set([...(existing.tags || []), ...(input.tags || [])])],
+    domains: [...new Set([...(existing.domains || []), ...(input.domains || [])])],
   };
   // Provenance is create-time truth: a later upsert never rewrites who
   // originally added the record.
   if (existing.addedBy) delete patch.addedBy;
+  // Matched on name or domain — either way it's this company; keep its name.
+  delete (patch as Partial<CompanyInputT>).name;
   return (await update(db, existing.id, patch))!;
 }
 
 export async function remove(db: D1Database, id: string): Promise<boolean> {
   const res = await db.prepare("DELETE FROM companies WHERE id = ?").bind(id).run();
+  await deleteKeys(db, "company", id);
   return (res.meta?.changes ?? 0) > 0;
 }

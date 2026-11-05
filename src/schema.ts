@@ -4,7 +4,12 @@ import { z } from "zod";
 // validation and by the store/CLI for types.
 export const ContactInput = z.object({
   name: z.string().min(1, "name is required"),
+  // Every address, primary first. emails[0] IS the primary email; the store
+  // keeps it in its own indexed column too.
   emails: z.array(z.string().email()).default([]),
+  // Optional: make this address the primary one (added if missing, moved to
+  // the front if present). Read back as `primaryEmail` on every contact.
+  primaryEmail: z.string().email().optional(),
   phones: z.array(z.string()).default([]),
   companyId: z.string().optional(),
   company: z.string().optional(),
@@ -26,8 +31,10 @@ export const ContactPatch = ContactInput.partial();
 export type ContactInputT = z.infer<typeof ContactInput>;
 export type ContactPatchT = z.infer<typeof ContactPatch>;
 
-export interface Contact extends ContactInputT {
+export interface Contact extends Omit<ContactInputT, "primaryEmail"> {
   id: string;
+  /** emails[0], or null when the contact has no email. */
+  primaryEmail: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -93,3 +100,12 @@ export interface Interaction {
   occurredAt: string;
   createdAt: string;
 }
+
+// POST /contacts/merge and /companies/merge. keepId (default ids[0]) wins
+// every field it has a value for; dryRun previews without writing.
+export const MergeInput = z.object({
+  ids: z.array(z.string()).min(2, "give at least two ids"),
+  keepId: z.string().optional(),
+  dryRun: z.boolean().default(false),
+});
+export type MergeInputT = z.infer<typeof MergeInput>;

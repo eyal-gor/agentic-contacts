@@ -24,6 +24,22 @@ export interface Env {
   /** The old per-Worker secret. Still read, because Secrets Store bindings
    *  are not reachable from local dev — there, this comes from .dev.vars. */
   API_KEY?: string;
+  /** Google OAuth client for browser sign-in (shared with the p_38 blog).
+   *  The id is a public [vars] value; the secret is a Worker secret. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  /** Optional dedicated session-signing secret; GOOGLE_CLIENT_SECRET is the
+   *  fallback signer. Rotating whichever is in use signs every browser out. */
+  SESSION_SECRET?: string;
+  /** Split-host mode, all optional: the app's origin (e.g.
+   *  https://app.contacts.autobirds.com), the origin that runs Google
+   *  sign-in (the one whose callback is registered), and the parent domain
+   *  the session cookie is shared on. Unset = everything on one host. */
+  APP_ORIGIN?: string;
+  AUTH_ORIGIN?: string;
+  COOKIE_DOMAIN?: string;
+  /** The one Google account allowed in; defaults to gneyal@gmail.com. */
+  ALLOWED_EMAIL?: string;
 }
 
 /** JSON text column → array. Tolerates NULL and legacy non-array values. */

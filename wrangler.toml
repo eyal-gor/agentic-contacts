@@ -2,11 +2,36 @@ name = "agentic-contacts"
 main = "src/worker.ts"
 compatibility_date = "2026-07-01"
 
-# The single-page UI. Served at / by the Worker runtime; the API routes below
-# still win because run_worker_first sends every request to the Worker first.
+# Both hostnames are Custom Domains on this Worker (DNS + TLS made by Cloudflare).
+routes = [
+  { pattern = "contacts.autobirds.com", custom_domain = true },
+  { pattern = "app.contacts.autobirds.com", custom_domain = true },
+]
+
+# Browser sign-in is Google-only, reusing the p_38 blog's OAuth client.
+# The client id is public by design; the matching GOOGLE_CLIENT_SECRET is a
+# Worker secret (wrangler secret put GOOGLE_CLIENT_SECRET). The Google Cloud
+# console must list https://contacts.autobirds.com/auth/google/callback as an
+# authorized redirect URI on this client (it does, alongside handset's).
+[vars]
+GOOGLE_CLIENT_ID = "562082594074-976aftddpfa4onkpb6hhp776uhcp5anf.apps.googleusercontent.com"
+# Landing page on contacts.autobirds.com, app on app.contacts.autobirds.com.
+# Google sign-in stays on contacts.autobirds.com (the registered callback);
+# the session cookie is set for the parent domain so the app host gets it.
+# Self-hosting on one host? Delete these three. Local dev keeps one host by
+# setting them empty in .dev.vars (APP_ORIGIN= AUTH_ORIGIN= COOKIE_DOMAIN=).
+APP_ORIGIN = "https://app.contacts.autobirds.com"
+AUTH_ORIGIN = "https://contacts.autobirds.com"
+COOKIE_DOMAIN = "contacts.autobirds.com"
+
+# Static files: the app (index.html) and the landing page (landing.html).
+# "/" goes to the Worker first so it can choose between them: signed-in
+# owner gets the app, everyone else the landing page. /app is always the app.
+# Everything else that matches a file is served directly.
 [assets]
 directory = "./public"
 binding = "ASSETS"
+run_worker_first = ["/"]
 
 # Contacts, companies, lists and interactions. Replaces the old data/*.json
 # files — Workers has no filesystem.
