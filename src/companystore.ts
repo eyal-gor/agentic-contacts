@@ -45,12 +45,14 @@ export async function list(db: D1Database, opts: ListOptions = {}): Promise<Comp
 
   if (q) {
     const cols = ["name", "website", "notes", "status", "fitReason", "suggestedAngle", "sourceUrl", "domains", "tags"];
-    where.push(`(${cols.map((c) => `lower(coalesce(${c}, '')) LIKE ?`).join(" OR ")})`);
-    for (let i = 0; i < cols.length; i++) binds.push(`%${q.toLowerCase()}%`);
+    where.push(`(${cols.map((c) => `instr(lower(coalesce(${c}, '')), ?) > 0`).join(" OR ")})`);
+    for (let i = 0; i < cols.length; i++) binds.push(q.toLowerCase());
   }
   if (tag) {
-    where.push("tags LIKE ?");
-    binds.push(`%${JSON.stringify(tag)}%`);
+    // instr, not LIKE: D1 caps LIKE patterns at 50 bytes, so a long tag
+    // (e.g. a list with a long name) made every query for it fail.
+    where.push("instr(lower(tags), ?) > 0");
+    binds.push(JSON.stringify(tag).toLowerCase());
   }
   if (status) {
     where.push("status = ?");
