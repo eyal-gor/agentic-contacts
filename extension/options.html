@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Agentic Contacts for LinkedIn</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; color: #111827; }
+    h1 { font-size: 20px; }
+    p { color: #4b5563; font-size: 14px; line-height: 1.5; }
+    label { display: block; font-size: 12px; font-weight: 600; color: #6b7280; margin: 16px 0 4px; text-transform: uppercase; }
+    input, textarea { width: 100%; font-family: inherit; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+    button { margin-top: 16px; padding: 9px 16px; border: none; border-radius: 6px; background: #4f46e5; color: #fff; font-weight: 600; cursor: pointer; }
+    #status { margin-top: 14px; font-size: 14px; }
+    .ok { color: #166534; } .bad { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>Agentic Contacts for LinkedIn</h1>
+  <p>Paste the API key of your contacts service. It stays in this browser and is only sent to the address below.
+     Signed in to the Contacts app in this browser? Leave the key empty and the extension tries your sign-in first.</p>
+  <label for="apiUrl">API address</label>
+  <input id="apiUrl" placeholder="https://contacts.autobirds.com">
+  <label for="apiKey">API key</label>
+  <input id="apiKey" type="password" autocomplete="off" placeholder="CONTACTS_API_KEY">
+  <button id="save">Save and test</button>
+  <div id="status"></div>
+
+  <h1 style="margin-top:36px">Drafting (optional)</h1>
+  <p>With an Anthropic API key, the panel can draft connection notes and messages from the profile, your reason and the campaign.
+     The key stays in this browser and is only sent to api.anthropic.com.</p>
+  <label for="anthropicKey">Anthropic API key</label>
+  <input id="anthropicKey" type="password" autocomplete="off" placeholder="sk-ant-…">
+  <label for="aboutMe">About you (used in every draft)</label>
+  <textarea id="aboutMe" rows="4" placeholder="e.g. Founder of Cerver: agents choose their own computer. Talking to AI agencies that run client agents on E2B/Modal."></textarea>
+  <button id="saveDraft">Save drafting settings</button>
+  <div id="draftStatus"></div>
+  <script src="options.js"></script>
+</body>
+</html>

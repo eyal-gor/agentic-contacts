@@ -70,13 +70,15 @@ export async function list(db: D1Database, opts: ListOptions = {}): Promise<Cont
     // Same fields the in-memory filter searched. LIKE against the JSON text
     // covers emails/phones — substring matching is what it did before too.
     const cols = ["name", "company", "title", "notes", "emails", "phones"];
-    where.push(`(${cols.map((c) => `lower(coalesce(${c}, '')) LIKE ?`).join(" OR ")})`);
-    for (let i = 0; i < cols.length; i++) binds.push(`%${q.toLowerCase()}%`);
+    where.push(`(${cols.map((c) => `instr(lower(coalesce(${c}, '')), ?) > 0`).join(" OR ")})`);
+    for (let i = 0; i < cols.length; i++) binds.push(q.toLowerCase());
   }
   if (tag) {
     // tags is a JSON array — match the quoted element so "ai" can't hit "ai-agent".
-    where.push("tags LIKE ?");
-    binds.push(`%${JSON.stringify(tag)}%`);
+    // instr, not LIKE: D1 caps LIKE patterns at 50 bytes, so a long tag
+    // (e.g. a list with a long name) made every query for it fail.
+    where.push("instr(lower(tags), ?) > 0");
+    binds.push(JSON.stringify(tag).toLowerCase());
   }
 
   if (email) {
