@@ -1,15 +1,24 @@
-# Agentic Contacts for LinkedIn (Chrome extension) · v0.7
+# Agentic Contacts for LinkedIn (Chrome extension) · v0.13
 
-The panel on LinkedIn has five tabs, and remembers the last one you used:
+## How to work with it: three steps, in this order
 
-- **Page / person name** — what's on this page, or the person you're looking at.
-- **Due** — follow-ups due today or earlier (red number).
-- **Posts** — posts you saved from the feed, with Claude's review and Copy buttons.
-- **Today** — your goals for today, streak, and who to reach out to next.
-- **Campaigns** — each campaign's funnel; click one for the dashboard.
+1. **Pick people.** Claude finds people who match who you're looking for. You keep or skip each one, one at a time. You can also save posts from your feed; Claude says if the author is a match, and you add them.
+2. **Reach out.** Everyone you kept. Open their LinkedIn and press Connect: the panel asks why, can write the note, and records it. They wait here until they accept.
+3. **Follow up.** People who accepted, wrote back, or are due a nudge. Send a message; the extension records it. When someone agrees to talk, set their stage to *call*.
 
-Pressing Connect on someone always jumps back to the person tab.
+**When you press Connect,** LinkedIn's request is held until the panel is filled in: why, **who they are** (one of your ICPs), **what you're offering them** (your offers, most recently used first, or + New offer) and **what to say when they accept**. The panel's **Connect on LinkedIn** saves it all and sends the request; "Connect without saving" just sends it. When the extension sees they accepted (your Notifications page, your Connections page, or their profile showing 1st), you get a Chrome notification and the panel opens with your message, why you reached out and the ICP. Copy it, or on their profile press "Write it in a message" (it fills LinkedIn's message box; you press Send).
 
+**Every day, alongside the steps: comment on relevant posts.** In the feed, posts about your topics (sandboxes, agents, evals, AI cost, agent infra; set in `icps.js` → `TOPICS`) are marked **💬 Relevant · worth a comment**. When you press Comment, the extension records the post, the author and what you wrote; if the author is in your contacts, it goes into their history. Posts you've commented on show **💬 You commented**.
+
+**Visibility** (dashboard tab) shows every comment with how many people saw it and reacted, comments per week, and your profile viewers, search appearances and followers over time. Comment numbers are read when you open your LinkedIn Comments page (this also brings in comments you left before installing); profile numbers when you open your LinkedIn dashboard.
+
+**Offers** (dashboard tab) lists what you sell: name, one-line pitch, who it's for, how often you've used it and how many people you pitched it to. Add, edit or delete there; the same list shows in the panel when you press Connect, and the CLI (`offers`, `offer-add`, `offer-edit`, `offer-rm`) edits it too. Offers are stored in the Contacts API (`/offers`).
+
+**Results** shows how far everyone got (asked → accepted → replied → call), by who they are and by campaign. Campaigns are optional labels; you don't need them to work.
+
+The dashboard (toolbar icon or panel → Open the full page) has a tab per step plus Today and Results. The panel on LinkedIn has three tabs: **Here** (this page or person), **Today** (the three steps, with today's goals and who is due), **Posts**.
+
+## Everything it does
 
 - **On a profile:** a panel says whether the person is in your contacts, why you wanted to connect, their stage, follow-up, notes and history. Not in yet: add them in one click (name, title and company are read from the page).
 - **When you press Connect** (anywhere), the panel opens on that person and asks why and for which campaign. LinkedIn's Send is recorded too, with the note you typed.
@@ -37,5 +46,5 @@ Keys stay in Chrome's extension storage. The contacts key is only sent to the co
 ## Notes
 
 - Tags it writes: `linkedin:requested`, `linkedin:connected`, `linkedin:replied`, `linkedin:inbound`, `campaign:<name>`, `stage:<stage>`. Reasons go into notes as `Why connect (date · campaign): …`. Campaign pitches are kept in extension storage, not on the server.
-- Everything uses the existing API. No server change.
+- Offers use `/offers` on the Contacts API (table `offers`, migration `0004`). Everything else uses the existing endpoints.
 - LinkedIn changes its markup often. Profile reading is in `readProfile()`, chats in `readThread()` / `readMessages()`, list cards in `cardsOnPage()`.

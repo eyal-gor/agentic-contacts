@@ -126,6 +126,7 @@
   addEventListener("scroll", () => openBox?.(), true);
   // (the panel's own scroll doesn't reach the window: hooked after the panel exists)
 
+  const onProfile = () => /^\/(in|pub)\/[^/]+\/?$/.test(location.pathname);
   const onSentPage = () => location.pathname.startsWith("/mynetwork/invitation-manager/sent");
 
   // ── Panel shell ─────────────────────────────────────────────────────
@@ -326,6 +327,7 @@
   let dueList = [];      // follow-ups due today or earlier
   let connectPerson = null; // who the last LinkedIn "Connect" click was for
   let lastCampaign = ""; // remembered between saves
+  let offersList = [];   // [{ id, name, pitch, lastUsed }], most recent first
   chrome.storage.local.get("lastCampaign").then((v) => { lastCampaign = v.lastCampaign || ""; });
   let target = null;     // the person the panel is about
   let mode = "auto";     // "auto" | "connect" (opened by a Connect click)
@@ -343,7 +345,7 @@
 
   // ── Tabs inside the panel: Here (this page or person) · Due · Posts · Today · Campaigns ──
   let view = "here";
-  chrome.storage.local.get("panelView").then(({ panelView }) => { if (panelView && panelView !== view) { view = panelView; if (open) render(); } }).catch(() => {});
+  chrome.storage.local.get("panelView").then(({ panelView }) => { if (panelView === "due" || panelView === "camps") panelView = "today"; if (panelView && panelView !== view) { view = panelView; if (open) render(); } }).catch(() => {});
   const setView = (v) => { view = v; chrome.storage.local.set({ panelView: v }).catch(() => {}); render(); };
   function paintViews() {
     const k = target && index[target.slug];
@@ -351,12 +353,10 @@
     const unreviewed = postsCache.filter((p) => !p.review).length;
     const tabs = [
       ["here", here, k ? "" : "", target ? `${target.name || "This person"}: what you know, why, stage, notes` : "This page: who here is in your contacts"],
-      ["due", "Due", dueList.length ? `<span class="n hot">${dueList.length}</span>` : "", "Follow-ups due today or earlier"],
-      ["posts", "Posts", postsCache.length ? `<span class="n ${unreviewed ? "hot" : ""}">${postsCache.length}</span>` : "", "Posts you saved from the feed, reviewed by Claude" + (unreviewed ? `\n${unreviewed} not reviewed yet` : "")],
-      ["today", "Today", "", "Your daily goals, streak and who to reach next"],
-      ["camps", "Campaigns", "", "Each campaign's funnel: asked, accepted, replied, call+"],
+      ["today", "Today", dueList.length ? `<span class="n hot">${dueList.length}</span>` : "", "Your 3 steps for today: pick, reach out, follow up" + (dueList.length ? `\n${dueList.length} follow-ups due` : "")],
+      ["posts", "__icon", postsCache.length ? `<span class="n ${unreviewed ? "hot" : ""}">${postsCache.length}</span>` : "", "Posts you bookmarked on Agentic Contacts. Claude reviews them" + (unreviewed ? `\n${unreviewed} not reviewed yet` : "")],
     ];
-    $("vt").innerHTML = `<div class="seg2">${tabs.map(([id, label, badge, tipText]) => `<button data-view="${id}" class="${view === id ? "on" : ""}" data-tip="${esc(tipText)}"><span class="lb">${esc(label)}</span>${badge}</button>`).join("")}</div><button class="x" id="close" data-tip="Fold the panel">×</button>`;
+    $("vt").innerHTML = `<div class="seg2">${tabs.map(([id, label, badge, tipText]) => `<button data-view="${id}" class="${view === id ? "on" : ""}" data-tip="${esc(tipText)}">${label === "__icon" ? `<span class="lb" style="display:flex">${BOOKMARK(true, 15)}</span>` : `<span class="lb">${esc(label)}</span>`}${badge}</button>`).join("")}</div><button class="x" id="close" data-tip="Fold the panel">×</button>`;
     $("vt").querySelectorAll("[data-view]").forEach((b) => b.onclick = () => setView(b.dataset.view));
     $("close").onclick = () => setOpen(false);
   }
@@ -365,6 +365,17 @@
   // LinkedIn's class names are generated, so read by structure: the name is
   // in the tab title and in a heading; the texts that follow it are the
   // degree ("· 1st"), the headline, the current company and the location.
+  const pendingOnPage = () => [...document.querySelectorAll("main button, main a")].some((b) => b.offsetParent && (/^Pending/i.test(clean(b.innerText)) || /^Pending, click to withdraw/i.test(b.getAttribute("aria-label") || "")));
+  // However the request went out (a menu, a one-click send), when this
+  // profile's button turns to Pending, ask why and what to say.
+  function watchPending() {
+    if (!onProfile() || !target || target.pending || mode === "connect" || mode === "preconnect" || !pendingOnPage()) return;
+    target.pending = true;
+    connectPerson = target;
+    mode = "connect";
+    view = "here";
+    setOpen(true);
+  }
   function readProfile() {
     const slug = slugOf(location.pathname);
     if (!slug) return null;
@@ -377,7 +388,10 @@
       let n;
       while ((n = w.nextNode()) && texts.length < 14) {
         const t = clean(n.textContent);
-        if (t && !host.contains(n.parentElement)) texts.push(t);
+        // LinkedIn keeps hidden copies (e.g. a "· 1st" for after you connect): read only what's shown.
+        const el = n.parentElement;
+        const shown = el && (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.offsetParent !== null);
+        if (t && shown && !host.contains(el)) texts.push(t);
       }
     }
     const degree = (texts.find((t) => /^·\s*(1st|2nd|3rd\+?)$/.test(t)) || "").replace(/^·\s*/, "");
@@ -387,8 +401,8 @@
     const location_ = contactIdx > 0 ? rest[contactIdx - 1] : "";
     let company = (title.match(/\b(?:at|@)\s+(.+)$/i) || [])[1] || "";
     if (!company && rest[1] && rest[1] !== location_ && rest[1] !== "Contact info") company = rest[1];
-    company = clean(company).replace(/\s*[|·•].*$/, "");
-    const pending = [...document.querySelectorAll("main button")].some((b) => /^Pending/i.test(clean(b.innerText)) || /^Pending, click to withdraw/i.test(b.getAttribute("aria-label") || ""));
+    company = clean(company).replace(/\s*[|·•].*$/, "").replace(/\s+[-–—]\s.*$/, "");
+    const pending = pendingOnPage();
     return { slug, url: profileUrl(slug), name, title, company, location: location_, degree, pending };
   }
 
@@ -441,6 +455,7 @@
     paintTab();
     if (!open) return;
     paintViews();
+    if (acceptedQueue.length) return renderAccepted();
     if (view === "due") return renderDueView();
     if (view === "posts") return renderPostsView();
     if (view === "today") return renderTodayView();
@@ -449,7 +464,7 @@
     if (!target) return renderPage();
     panel.innerHTML = `<div class="top"><h3>${esc(target.name || target.slug)}</h3>${closeBtn()}</div><div class="muted">Loading…</div>`;
     wireClose();
-    const r = await send("lookup", { url: target.url });
+    const r = await send("lookup", { url: target.url, name: target.name });
     if (!r.ok) return showError(r.error);
     if (r.data.found) {
       const c = r.data.contact;
@@ -459,7 +474,8 @@
         if (a.ok) { flash = "They accepted your request. Saved."; await loadIndex(); return renderKnown(a.data); }
       }
       renderKnown(r.data);
-    } else renderNew();
+    } else if (r.data.candidate) renderCandidate(r.data.candidate);
+    else renderNew();
   }
 
   const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -471,10 +487,10 @@
   };
   // Drop boilerplate like "LinkedIn 1st-degree." at the start of old notes.
   const tidy = (t) => String(t || "").replace(/^(LinkedIn(\s+\d(st|nd|rd)-degree)?|1st-degree)[.,:;\s-]*/i, "").replace(/^Reached out\s+/i, "");
-  function dueBlock() {
+  function dueBlock(limit = Infinity) {
     if (!dueList.length) return `<div class="sec"><div class="h">Follow-ups</div><div class="muted">Nothing due.</div></div>`;
     return `<div class="sec"><div class="h">Due · ${dueList.length}</div>
-      ${dueList.map((d) => {
+      ${dueList.slice(0, limit).map((d) => {
         const why = tidy(d.why);
         const late = d.at < todayStr();
         const nice = (iso) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -517,7 +533,7 @@
 
   async function renderPage() {
     const people = knownOnPage();
-    panel.innerHTML = `${dueList.length ? `<button class="mini" id="goDue" style="margin-bottom:6px">${dueList.length} follow-up${dueList.length === 1 ? "" : "s"} due ›</button>` : ""}
+    panel.innerHTML = `${dueList.length ? `<button class="mini" id="goDue" style="margin-bottom:6px">${dueList.length} follow-up${dueList.length === 1 ? "" : "s"} due · see Today ›</button>` : ""}
       <div class="h">On this page</div>
       ${people.length
         ? `<div class="sub">${people.length} ${people.length === 1 ? "person" : "people"} here ${people.length === 1 ? "is" : "are"} in your contacts</div>
@@ -526,8 +542,28 @@
       <div class="row"><a href="https://www.linkedin.com/mynetwork/invitation-manager/sent/">Sent invitations: add the reasons ›</a></div>
       <div class="row"><a href="https://www.linkedin.com/mynetwork/invite-connect/connections/">Connections: record who accepted ›</a></div>
       <div class="row"><button class="link" id="refresh">Reload contacts</button></div>`;
-    $("goDue")?.addEventListener("click", () => setView("due"));
+    $("goDue")?.addEventListener("click", () => setView("today"));
     $("refresh").onclick = async () => { await send("refresh"); await loadIndex(); render(); };
+  }
+
+  // ── They accepted: what you wanted to say ──
+  let acceptedQueue = [];
+  chrome.storage.local.get("acceptedQueue").then(({ acceptedQueue: q = [] }) => { acceptedQueue = q; if (q.length) { open = true; box.hidden = false; render(); } }).catch(() => {});
+  chrome.storage.onChanged.addListener((ch) => {
+    if (!ch.acceptedQueue) return;
+    const before = acceptedQueue.length;
+    acceptedQueue = ch.acceptedQueue.newValue || [];
+    if (acceptedQueue.length > before) setOpen(true); else if (open) render();
+  });
+  function renderAccepted() {
+    panel.innerHTML = `<div class="h" style="margin-top:2px">They accepted · ${acceptedQueue.length}</div>` + acceptedQueue.map((a) => `<div class="person" data-acc="${esc(a.id)}">
+        <a class="n" href="${esc(a.url)}">${esc(a.name)}</a> <span class="chip ok">accepted</span>${a.icp ? ` <span class="chip stage">${esc(a.icp)}</span>` : ""}
+        ${a.why ? `<div class="t" style="margin-top:3px"><b>Why you reached out:</b> ${esc(a.why)}</div>` : ""}
+        ${a.say ? `<div class="why" dir="auto" style="background:#e3f9e9;border-left-color:#34c759"><b>You wanted to say:</b><br>${esc(a.say)}</div>` : `<div class="t muted">You didn't write a message for later. Send a first message.</div>`}
+        <div class="row" style="margin-top:2px">${a.say ? `<button class="mini ok" data-copy="${esc(a.say)}">Copy</button>` : ""}<a class="mini" href="${esc(a.url)}" style="text-decoration:none">Open profile</a><button class="mini" data-ack="${esc(a.id)}" data-tip="Hide this. It stays on their card in Contacts.">Done</button></div>
+      </div>`).join("");
+    panel.querySelectorAll("[data-copy]").forEach((b) => b.onclick = async () => { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "Copied ✓"; });
+    panel.querySelectorAll("[data-ack]").forEach((b) => b.onclick = () => send("ackAccepted", { id: b.dataset.ack }));
   }
 
   // ── Due tab ──
@@ -557,6 +593,7 @@
     postsCache = ch.posts.newValue || [];
     if (open) { paintViews(); if (view === "posts" && !postReviewing.size) renderPostsView(); }
   });
+  const postHref = (p) => p.url || (/linkedin\.com\/(in|company)\//.test(p.author?.url || "") ? p.author.url.replace(/\/?$/, "/") + (p.author.url.includes("/company/") ? "posts/" : "recent-activity/all/") : p.pageUrl);
   const icpName = (id) => (self.ICPS || []).find((i) => i.id === id);
   function renderPostsView(errFor, errMsg) {
     const list = [...postsCache].sort((a, b) => (b.review?.fit ?? -1) - (a.review?.fit ?? -1) || b.savedAt.localeCompare(a.savedAt));
@@ -574,9 +611,9 @@
         const busy = postReviewing.has(p.id);
         const fitCls = !rv ? "" : rv.fit >= 7 ? "hi" : rv.fit <= 3 ? "lo" : "";
         return `<div class="pc" data-pid="${esc(p.id)}">
-          <div class="l1"><a class="au" href="${esc(p.author.url || p.pageUrl)}" data-tip="${esc(p.author.headline || "Open the author")}">${esc(p.author.name || "Unknown")}</a>
+          <div class="l1"><a class="au" href="${esc(postHref(p))}" data-tip="${esc(p.url ? "Open the post on LinkedIn" : "Open " + (p.author.name || "the author") + "'s recent posts (this one was bookmarked before links were kept)")}">${esc(p.author.name || "Unknown")}</a>
             ${rv ? `<span class="fit ${fitCls}" data-tip="${esc((icp ? `Fits ICP ${icp.rank}: ${icp.name}` : "Fits none of your ICPs") + `\nScore ${rv.fit}/10, judged by Claude from the post`)}">${icp ? "ICP " + icp.rank + " · " : ""}${rv.fit}/10</span>` : ""}</div>
-          <div class="tx" data-tip="${esc(p.text.slice(0, 600))}">${esc(p.text)}</div>
+          <a class="tx" href="${esc(postHref(p))}" style="color:inherit;text-decoration:none;font-size:12px" data-tip="${esc(p.text.slice(0, 600))}">${esc(p.text)}</a>
           ${rv ? `<div class="rv"><b>${esc(rv.summary)}</b><br>${esc(rv.why)}</div>` : ""}
           <div class="acts2">
             ${rv ? `${rv.comment ? `<button class="mini" data-copy="${esc(rv.comment)}" data-tip="${esc("Comment you could leave:\n" + rv.comment)}">Copy comment</button>` : ""}${rv.message ? `<button class="mini" data-copy="${esc(rv.message)}" data-tip="${esc("First message:\n" + rv.message)}">Copy message</button>` : ""}`
@@ -625,18 +662,19 @@
       else if (k !== today) break;
     }
     const mins = Math.round(Object.values(t.time || {}).reduce((a, b) => a + b, 0) / 60);
-    const goal = (label, n, g, tipText) => `<div class="goal" data-tip="${esc(tipText)}"><div class="gl">${label}<span>${n} / ${g}${n >= g ? " ✓" : ""}</span></div><div class="bar"><i class="${n >= g ? "done" : ""}" style="width:${Math.min(100, g ? (n / g) * 100 : 0)}%"></i></div></div>`;
+    const step = (n, label, done, g, body) => `<div class="goal"><div class="gl"><span style="color:#fff;background:#5e5ce6;border-radius:50%;width:18px;height:18px;display:inline-grid;place-items:center;font-size:11px;margin-right:6px">${n}</span><b style="flex:1;color:#1d1d1f">${label}</b><span>${done} / ${g} today${done >= g ? " ✓" : ""}</span></div><div class="bar"><i class="${done >= g ? "done" : ""}" style="width:${Math.min(100, g ? (done / g) * 100 : 0)}%"></i></div>${body}</div>`;
     const next = toReach.slice(0, 3);
     panel.innerHTML = `<div class="streak"><b>${streak}</b> day streak${mins ? ` · ${mins} min on LinkedIn today` : ""}</div>
-      ${goal("Reach out", t.reach, goals.reach, "New people you asked to connect with or messaged today")}
-      ${goal("Follow up", t.follow, goals.follow, "People you followed up with today")}
-      ${goal("Review suggestions", t.review, goals.review, `Suggested people you kept or skipped today. ${toReview} waiting.`)}
-      ${t.follow < goals.follow && dueList.length ? `<button class="mini" id="goDue2">${dueList.length} due: follow up ›</button>` : ""}
-      ${next.length && t.reach < goals.reach ? `<div class="sec"><div class="h">Reach out next</div>${next.map((p) => `<div class="person"><a class="n" href="${esc(p.linkedin)}">${esc(p.name)}</a>${p.icp ? ` <span class="chip stage">${esc(p.icp)}</span>` : ""}<div class="t">${esc(p.why || [p.title, p.company].filter(Boolean).join(" · "))}</div></div>`).join("")}</div>` : ""}
-      <div class="row"><button class="mini" id="todayDash" data-tip="Full Today page: 12-month grid, time on LinkedIn, edit goals">Full page ↗</button>${toReview ? `<button class="mini" id="revDash">Review ${toReview} suggestions ↗</button>` : ""}</div>`;
-    $("goDue2")?.addEventListener("click", () => setView("due"));
+      <div class="goal"><div class="gl"><b style="flex:1;color:#1d1d1f">💬 Every day: comment on relevant posts</b><span>${t.comment || 0} / ${goals.comment ?? 3}${(t.comment || 0) >= (goals.comment ?? 3) ? " ✓" : ""}</span></div><div class="bar"><i class="${(t.comment || 0) >= (goals.comment ?? 3) ? "done" : ""}" style="width:${Math.min(100, ((t.comment || 0) / (goals.comment || 3)) * 100)}%;background:#30b0c7"></i></div><div class="t muted" style="margin-top:3px">Posts marked 💬 Relevant in your feed.</div></div>
+      ${step(1, "Pick people", t.review, goals.review, `<div class="t muted" style="margin-top:4px">${toReview ? `${toReview} people Claude found are waiting. <button class="link" id="pickDash">Pick ›</button>` : "Nobody waiting."}</div>`)}
+      ${step(2, "Reach out", t.reach, goals.reach, next.length ? next.map((p) => `<div class="person"><a class="n" href="${esc(p.linkedin)}">${esc(p.name)}</a><div class="t">${esc(p.why || [p.title, p.company].filter(Boolean).join(" · "))}</div></div>`).join("") + `<div class="t muted">Open them, press Connect. <button class="link" id="reachDash">All ›</button></div>` : `<div class="t muted">Nobody ready. Pick people first.</div>`)}
+      ${step(3, "Follow up", t.follow, goals.follow, dueList.length ? dueBlock(5).replace(/<div class="h">[^<]*<\/div>/, "").replace('<div class="sec">', "<div>") + (dueList.length > 5 ? `<div class="t muted">${dueList.length - 5} more due. <button class="link" id="followDash">All ›</button></div>` : "") : `<div class="t muted">Nobody is due.</div>`)}
+      <div class="row"><button class="mini" id="todayDash" data-tip="The full page: each step, results, your 12-month grid">Open the full page ↗</button></div>`;
+    $("pickDash")?.addEventListener("click", () => send("openDashboard", { page: "pick" }));
+    $("reachDash")?.addEventListener("click", () => send("openDashboard", { page: "reach" }));
+    $("followDash")?.addEventListener("click", () => send("openDashboard", { page: "follow" }));
     $("todayDash").onclick = () => send("openDashboard", { page: "today" });
-    $("revDash")?.addEventListener("click", () => send("openDashboard"));
+    wireDue(render);
   }
 
   function renderSent() {
@@ -686,8 +724,13 @@
   const connectBlock = (asked, label, kind = asked ? "requested" : "") => `
     <div class="sec"><div class="h">${label}</div>
       <textarea id="reason" placeholder="e.g. runs an AI agency on E2B; ask how they host client sandboxes"></textarea>
-      <span class="lbl">Campaign</span>
-      <input type="text" id="campaign" placeholder="e.g. cerver-ai-agencies · click for suggestions" value="${esc(lastCampaign)}">
+      <span class="lbl">Who they are</span>
+      <div class="seg small" id="icpPick">${(self.ICPS || []).map((i) => `<button data-icp="${i.id}" data-tip="${esc(i.person)}">${esc(i.short)}</button>`).join("")}</div>
+      <span class="lbl">When they accept, say</span>
+      <textarea id="sayLater" placeholder="The first message you'll send. It pops up when they accept, so you don't forget."></textarea>
+      <span class="lbl">What you're offering them</span>
+      <div class="seg small" id="offerPick">${offersList.map((o, i) => `<button data-offer="${esc(o.id)}" class="${i === 0 ? "on" : ""}" data-tip="${esc(o.pitch || o.name)}">${esc(o.name)}</button>`).join("")}<button id="newOfferBtn" data-tip="Add an offer: a name and one line on what they get">+ New offer</button></div>
+      <div id="newOffer" hidden><input type="text" id="offerName" placeholder="Name, e.g. Cerver Agents for agencies"><input type="text" id="offerPitch" placeholder="One line: what they get" style="margin-top:4px"><button class="mini ok" id="offerSave" style="margin-top:4px">Add offer</button></div>
       <div class="seg" id="kind">
         <button data-k="requested" class="${kind === "requested" ? "on" : ""}">Asked to connect</button><button data-k="message" class="${kind === "message" ? "on" : ""}">Messaged</button><button data-k="inbound" class="${kind === "inbound" ? "on" : ""}">They reached out</button>
       </div>
@@ -698,8 +741,34 @@
     attachSuggest($("tags"), () => tagList, { multi: true });
     attachSuggest($("addTags"), () => tagList, { multi: true });
   }
+  function wireOffers() {
+    root.querySelectorAll("#offerPick [data-offer]").forEach((b) => b.onclick = () => {
+      const on = !b.classList.contains("on");
+      root.querySelectorAll("#offerPick [data-offer]").forEach((x) => x.classList.remove("on"));
+      b.classList.toggle("on", on);
+    });
+    $("newOfferBtn")?.addEventListener("click", () => { $("newOffer").hidden = false; $("offerName").focus(); });
+    $("offerSave")?.addEventListener("click", async () => {
+      const r = await send("saveOffer", { name: $("offerName").value, pitch: $("offerPitch").value, icp: root.querySelector("#icpPick button.on")?.dataset.icp || null });
+      if (!r.ok) return ($("offerName").placeholder = r.error);
+      offersList = [r.data, ...offersList.filter((o) => o.id !== r.data.id)];
+      root.querySelectorAll("#offerPick [data-offer]").forEach((x) => x.classList.remove("on"));
+      $("newOfferBtn").insertAdjacentHTML("beforebegin", `<button data-offer="${esc(r.data.id)}" class="on" data-tip="${esc(r.data.pitch || r.data.name)}">${esc(r.data.name)}</button>`);
+      $("newOffer").hidden = true;
+      wireOffers();
+    });
+  }
   function wireKind() {
     wireSuggest();
+    wireOffers();
+    root.querySelectorAll("#icpPick button").forEach((b) => b.onclick = () => {
+      const on = !b.classList.contains("on");
+      root.querySelectorAll("#icpPick button").forEach((x) => x.classList.remove("on"));
+      b.classList.toggle("on", on);
+      // Picking who they are selects the offer made for them, if there is one.
+      const match = on && offersList.find((o) => o.icp === b.dataset.icp);
+      if (match) root.querySelectorAll("#offerPick [data-offer]").forEach((x) => x.classList.toggle("on", x.dataset.offer === match.id));
+    });
     root.querySelectorAll("#kind button").forEach((b) => b.onclick = () => {
       const on = !b.classList.contains("on");
       root.querySelectorAll("#kind button").forEach((x) => x.classList.remove("on"));
@@ -711,6 +780,9 @@
     if (campaign) { lastCampaign = campaign; chrome.storage.local.set({ lastCampaign }); }
     return {
       reason: clean($("reason")?.value),
+      icp: root.querySelector("#icpPick button.on")?.dataset.icp || "",
+      offer: root.querySelector("#offerPick [data-offer].on")?.dataset.offer || "",
+      sayLater: ($("sayLater")?.value || "").trim(),
       campaign,
       kind: root.querySelector("#kind button.on")?.dataset.k || null,
       remind: Boolean($("remind")?.checked),
@@ -725,6 +797,19 @@
 
   // Puts text into LinkedIn's connect-note box (pressing "Add a note" if
   // needed) or the open message box.
+  async function writeMessage(text) {
+    const box = () => [...document.querySelectorAll('.msg-form__contenteditable, [role="textbox"][contenteditable="true"]')].filter((e) => e.offsetParent && !host.contains(e)).at(-1);
+    let ed = box();
+    if (!ed) {
+      const btn = [...document.querySelectorAll("main button, main a")].find((b) => /^Message\b/.test(clean(b.innerText)) || /^Message /.test(b.getAttribute("aria-label") || ""));
+      if (btn) { btn.click(); for (let i = 0; i < 20 && !(ed = box()); i++) await sleep(150); }
+    }
+    if (!ed) return false;
+    ed.focus();
+    document.execCommand("selectAll", false);
+    document.execCommand("insertText", false, text);
+    return true;
+  }
   async function insertIntoLinkedIn(text) {
     const noteBox = () => document.querySelector('[role=dialog] textarea, .artdeco-modal textarea');
     let ta = noteBox();
@@ -806,26 +891,51 @@
   }
   const threadText = (msgs, who) => msgs.slice(-14).map((m) => `${sameName(m.sender, who) ? "Them" : "Me"}: ${m.text}`).join("\n");
 
+  // Same name as someone saved without a LinkedIn link: one click links them.
+  function renderCandidate(k) {
+    const t = target;
+    panel.innerHTML = `<div class="top"><h3>${esc(t.name)}</h3></div>
+      <div class="sub">Is this the ${esc(k.name)} already in your contacts?</div>
+      <div class="person"><b>${esc(k.name)}</b>${k.suggested ? ` <span class="chip req" data-tip="Claude suggested them. Still waiting in step 1, Pick">suggested</span>` : ""}${k.icp ? ` <span class="chip stage">${esc(k.icp)}</span>` : ""}
+        <div class="t">${esc([k.title, k.company].filter(Boolean).join(" · "))}</div>
+        ${k.evidence ? `<div class="why" style="margin-top:6px"><b>What we found:</b> ${esc(k.evidence)}</div>` : k.why ? `<div class="why" style="margin-top:6px">${esc(k.why)}</div>` : ""}</div>
+      <button class="go" id="linkYes">Yes, this is them</button>
+      <div class="row"><button class="link" id="linkNo">No, someone else</button></div><div id="msg"></div>`;
+    $("linkYes").onclick = async () => {
+      $("linkYes").disabled = true;
+      const r = await send("linkProfile", { id: k.id, url: t.url });
+      if (!r.ok) { $("linkYes").disabled = false; return ($("msg").innerHTML = `<div class="err">${esc(r.error)}</div>`); }
+      flash = "Linked to their LinkedIn.";
+      await loadIndex();
+      r.data.found ? renderKnown(r.data) : renderNew();
+    };
+    $("linkNo").onclick = () => renderNew();
+  }
+
   function renderNew() {
     const t = target;
-    const asking = mode === "connect" || t.pending;
+    const asking = mode === "connect" || mode === "preconnect" || t.pending;
     panel.innerHTML = `<div class="top"><h3>${esc(t.name || "This person")}</h3>${closeBtn()}</div>
       <div class="sub">${esc([t.degree, t.location].filter(Boolean).join(" · "))}${t.degree || t.location ? " · " : ""}not in your contacts</div>
+      <details ${mode === "preconnect" ? "" : "open"}><summary class="muted" style="cursor:pointer">${esc([t.title, t.company].filter(Boolean).join(" · ") || "Details")}</summary>
       <span class="lbl">Name</span><input type="text" id="name" value="${esc(t.name)}">
       <span class="lbl">Title</span><input type="text" id="title" value="${esc(t.title)}">
       <span class="lbl">Company</span><input type="text" id="company" value="${esc(t.company)}">
-      <span class="lbl">Tags (comma separated)</span><input type="text" id="tags" placeholder="click for suggestions">
+      <span class="lbl">Tags (comma separated)</span><input type="text" id="tags" placeholder="click for suggestions"></details>
       ${connectBlock(asking, t.degree === "1st" ? "Why they matter to you" : t.pending ? "You asked to connect. Why?" : "Why do you want to connect?", asking ? "requested" : "")}
-      <button class="go" id="save">${asking ? "Save the request and the reason" : "Add to contacts"}</button>
+      <button class="go" id="save">${mode === "preconnect" ? "Connect on LinkedIn" : asking ? "Save the request and the reason" : "Add to contacts"}</button>
+      ${mode === "preconnect" ? `<div class="row"><button class="link" id="plainConnect" data-tip="Send the request without saving anything">Connect without saving</button></div>` : ""}
       <div id="msg"></div>
       ${draftBlock(t.degree === "1st" || t.thread ? "Message" : "Connection note")}`;
     wireClose();
+    $("plainConnect")?.addEventListener("click", async () => { mode = "auto"; t.pending = true; await pressConnect(); render(); });
     wireKind();
     wireDraft(() => ({
       kind: t.thread ? "reply" : t.degree === "1st" ? "message" : "note",
       person: { name: clean($("name")?.value) || t.name, title: clean($("title")?.value), company: clean($("company")?.value), location: t.location },
       reason: clean($("reason")?.value),
       campaign: clean($("campaign")?.value),
+      offer: root.querySelector("#offerPick [data-offer].on")?.dataset.offer || "",
       thread: t.thread ? threadText(readMessages(), t.participant) : "",
     }));
     if (asking) $("reason").focus();
@@ -843,8 +953,10 @@
         ...readOutreach(),
       });
       if (!r.ok) { $("save").disabled = false; return ($("msg").innerHTML = `<div class="err">${esc(r.error)}</div>`); }
+      const wasHeld = mode === "preconnect";
       mode = "auto";
       flash = "Added.";
+      if (wasHeld) { t.pending = true; flash = (await pressConnect()) ? "Saved, and the request went to LinkedIn. If LinkedIn asks to add a note, that's your call." : "Saved. Press Connect on LinkedIn again to send the request."; }
       await loadIndex();
       renderKnown(r.data);
     };
@@ -853,9 +965,9 @@
   function renderKnown({ contact: c, interactions }) {
     const t = target;
     const connectedNow = t.degree === "1st" || c.connected;
-    const asking = mode === "connect" || (t.pending && !c.requested);
+    const asking = mode === "connect" || mode === "preconnect" || (t.pending && !c.requested);
     const reasons = c.reasons.map((w) => `<div class="why">${esc(w.text)}${w.date ? `<div class="d">${esc(w.date)}</div>` : ""}</div>`).join("");
-    const notesRest = c.notes.split("\n").filter((l) => !/^Why connect/.test(l)).join("\n").trim();
+    const notesRest = c.notes.split("\n").filter((l) => !/^(Why connect|Say when they accept)/.test(l)).join("\n").trim();
     const minor = c.tags.filter((t2) => !/^(stage:|linkedin:)/.test(t2));
     panel.innerHTML = `<div class="top"><h3>${esc(c.name)}</h3>${closeBtn()}</div>
       <div class="sub">${esc([c.title, c.company].filter(Boolean).join(" · "))}</div>
@@ -863,19 +975,23 @@
         <span class="chip ok">In contacts</span>
         ${c.stage ? `<span class="chip stage">${esc(c.stage)}</span>` : ""}
         ${connectedNow ? `<span class="chip">connected</span>` : c.requested ? `<span class="chip req">asked to connect</span>` : ""}
+        ${(c.icps || []).map((i) => `<span class="chip stage" data-tip="${esc(i.person)}">${esc(i.short)}</span>`).join("")}
         ${minor.slice(0, 3).map((x) => `<span class="chip">${esc(x)}</span>`).join("")}${minor.length > 3 ? `<span class="chip" title="${esc(minor.slice(3).join(", "))}">+${minor.length - 3}</span>` : ""}
       </div>
       ${flash ? `<div class="ok-msg">${esc(flash)}</div>` : ""}
       <div class="seg small" id="stage">${STAGES.map((st) => `<button data-s="${st}" class="${c.stage === st ? "on" : ""}" data-tip="${c.stage === st ? "Current stage. Click to clear it." : `Move to stage “${st}”`}">${st}</button>`).join("")}</div>
       ${t.thread ? `<div class="sec"><div class="h">This conversation</div><div id="lastMsg"></div>
         <div class="row" style="margin-top:2px"><button class="mini ok" id="logLast" data-tip="Saves the newest message in this chat to their history">Log last message</button>${c.replied ? `<span class="chip ok">replied</span>` : ""}</div></div>` : ""}
+      ${c.sayLater ? `<div class="sec"><div class="h">${connectedNow ? "They're connected. Send this" : "When they accept, say"}</div>
+        <div class="why" style="${connectedNow ? "background:#e3f9e9;border-left-color:#34c759" : ""}" dir="auto">${esc(c.sayLater)}</div>
+        <div class="row" style="margin-top:2px"><button class="mini ok" id="sayCopy">Copy</button>${connectedNow ? `<button class="mini" id="sayInsert" data-tip="Opens a message to them and puts the text in. Nothing is sent.">Write it in a message</button>` : ""}</div></div>` : ""}
       ${reasons ? `<div class="sec"><div class="h">Why you wanted to connect</div>${reasons}</div>` : ""}
       ${notesRest ? `<div class="sec"><div class="h">Notes</div><div class="notes" id="notes">${esc(notesRest)}</div>${notesRest.length > 260 ? `<button class="link" id="more">Show all</button>` : ""}</div>` : ""}
       ${c.followUpAt ? `<div class="sec fu">Follow up <b class="${c.followUpAt.slice(0, 10) < todayStr() ? "late" : ""}">${esc(c.followUpAt.slice(0, 10))}</b>${c.followUpNote ? ": " + esc(c.followUpNote) : ""}
         <div class="row"><button class="mini ok" id="fuDone" data-tip="You followed up: clears the reminder and logs it">Done</button><button class="mini" id="fuSnooze" data-tip="Remind me again in 3 days">+3 days</button><button class="mini" id="clearFu" data-tip="Remove the reminder without logging anything">Clear</button></div></div>` : ""}
 
       ${asking || (!connectedNow && !c.requested && !reasons)
-        ? connectBlock(asking, t.pending ? "You asked to connect. Why?" : "Why do you want to connect?", asking ? "requested" : "") + `<button class="go" id="saveReason">Save</button>`
+        ? connectBlock(asking, t.pending ? "You asked to connect. Why?" : "Why do you want to connect?", asking ? "requested" : "") + `<button class="go" id="saveReason">${mode === "preconnect" ? "Connect on LinkedIn" : "Save"}</button>${mode === "preconnect" ? `<div class="row"><button class="link" id="plainConnect">Connect without saving</button></div>` : ""}`
         : `<div class="row"><button class="link" id="addReason">+ Add a reason or campaign</button></div><div id="reasonSlot"></div>`}
 
       ${draftBlock(t.thread ? "Reply" : connectedNow ? "Message" : "Connection note")}
@@ -895,6 +1011,8 @@
       <div class="sec"><div class="h">Tags</div><div class="row" style="margin-top:0"><input type="text" id="addTags" placeholder="add tags · click for suggestions" style="flex:1;width:auto"><button class="mini" id="addTagsBtn">Add</button></div></div>
       <div class="row"><a href="${esc(c.appUrl)}" target="_blank" rel="noopener">Open in Contacts ↗</a></div>`;
     flash = "";
+    $("sayCopy")?.addEventListener("click", async (e) => { await navigator.clipboard.writeText(c.sayLater); e.target.textContent = "Copied ✓"; });
+    $("sayInsert")?.addEventListener("click", async (e) => { e.target.disabled = true; const ok = await writeMessage(c.sayLater); e.target.textContent = ok ? "In the message box ✓" : "Open their Message box first"; e.target.disabled = false; });
     wireClose();
     $("more")?.addEventListener("click", () => { $("notes").classList.add("open"); $("more").remove(); });
     if (asking) $("reason")?.focus();
@@ -933,9 +1051,13 @@
     async function saveReason() {
       const btn = $("saveReason");
       btn.disabled = true;
+      const held = mode === "preconnect";
       const r = await send("save", { url: t.url, name: c.name, ...readOutreach() });
-      r.ok ? done(r.data, "Saved.") : fail(btn, r);
+      if (!r.ok) return fail(btn, r);
+      if (held) { t.pending = true; mode = "auto"; return done(r.data, (await pressConnect()) ? "Saved, and the request went to LinkedIn." : "Saved. Press Connect on LinkedIn again to send the request."); }
+      done(r.data, "Saved.");
     }
+    $("plainConnect")?.addEventListener("click", async () => { mode = "auto"; t.pending = true; await pressConnect(); render(); });
     $("saveReason")?.addEventListener("click", saveReason);
     $("saveLog").onclick = async () => {
       const btn = $("saveLog");
@@ -1129,6 +1251,7 @@
 
   async function loadIndex() {
     const r = await send("index");
+    send("offers").then((o) => { if (o.ok) offersList = o.data; });
     send("campaigns").then((c) => { if (c.ok) campaigns = c.data; });
     send("tags").then((t) => { if (t.ok) tagList = t.data; });
     const d = await send("due");
@@ -1151,7 +1274,7 @@
     lastPath = location.pathname;
     mode = "auto";
     target = null;
-    if (slugOf(location.pathname)) {
+    if (onProfile()) {
       // Wait for LinkedIn to draw the name before reading the page.
       let tries = 0;
       const wait = setInterval(() => {
@@ -1206,15 +1329,50 @@
     $("tab").title = hits.map((h) => h.name).join(", ") + " accepted";
   }
 
-  // Pressing "Connect" anywhere: open the panel on that person and ask why.
-  document.addEventListener("click", (e) => {
-    if (host.contains(e.target) || e.target.closest?.("[data-ac-bar]")) return;
-    const btn = e.target.closest?.('button, a[role=button], div[role=button], [role=menuitem], a[href*="custom-invite"]');
-    if (!btn) return;
+  // Pressing "Connect" anywhere: hold it, open the panel on that person and
+  // ask why, who they are and what you're offering. The panel's own Connect
+  // button then saves it and presses LinkedIn's Connect for real.
+  let allowConnect = false;      // true while the panel itself presses Connect
+  let heldConnect = null;        // the Connect element that was held
+  const connectElOf = (target) => {
+    if (host.contains(target) || target.closest?.("[data-ac-bar]")) return null;
+    const btn = target.closest?.('button, a[role=button], div[role=button], [role=menuitem], a[href*="custom-invite"]');
+    if (!btn) return null;
     const aria = btn.getAttribute("aria-label") || "";
-    const text = clean(btn.innerText);
+    return /^Invite .+? to connect/i.test(aria) || clean(btn.innerText) === "Connect" ? btn : null;
+  };
+  // LinkedIn may act on the press, not the click: hold those too.
+  ["pointerdown", "mousedown", "pointerup", "mouseup"].forEach((type) => document.addEventListener(type, (e) => {
+    if (!allowConnect && e.isTrusted && connectElOf(e.target)) { e.stopImmediatePropagation(); e.stopPropagation(); }
+  }, true));
+  async function pressConnect() {
+    allowConnect = true;
+    try {
+      const el = heldConnect;
+      if (el?.isConnected && el.offsetParent) { press(el); return true; }
+      if (!onProfile()) return false;
+      // The menu closed: find Connect on the profile again (button, or More → Connect).
+      const direct = [...document.querySelectorAll("main button, main a")].find((b) => b.offsetParent && (/^Invite .+ to connect/i.test(b.getAttribute("aria-label") || "") ? (b.getAttribute("aria-label") || "").includes(target?.name?.split(" ")[0] || "\u0000") : false));
+      if (direct) { press(direct); return true; }
+      const more = [...document.querySelectorAll("main button")].find((b) => b.offsetParent && clean(b.innerText) === "More");
+      if (!more) return false;
+      press(more);
+      for (let i = 0; i < 20; i++) {
+        await sleep(100);
+        const mi = [...document.querySelectorAll('[role="menuitem"]')].find((m) => m.offsetParent && clean(m.innerText) === "Connect");
+        if (mi) { press(mi); return true; }
+      }
+      return false;
+    } finally { setTimeout(() => { allowConnect = false; }, 1500); }
+  }
+  document.addEventListener("click", (e) => {
+    const btn = connectElOf(e.target);
+    if (!btn || allowConnect) return;
+    if (!e.isTrusted) return;
+    e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation();
+    heldConnect = btn;
+    const aria = btn.getAttribute("aria-label") || "";
     const invite = aria.match(/^Invite (.+?) to connect/i);
-    if (!invite && text !== "Connect") return;
     // Search results: the invite link carries the profile id (?vanityName=…).
     const vanity = (btn.getAttribute("href") || "").match(/vanityName=([^&]+)/);
     let person = null;
@@ -1224,12 +1382,12 @@
       for (let i = 0; i < 10 && card && !card.querySelector?.(`a[href*="/${s}"]`); i++) card = card.parentElement;
       const name = invite ? clean(invite[1]) : clean([...(card?.querySelectorAll(`a[href*="/${s}"]`) || [])].map((a) => a.innerText).find((t) => clean(t)) || "").split("\n")[0];
       connectPerson = target = { slug: s, url: profileUrl(s), name: name || s, title: "", company: "", degree: "", location: "" };
-      mode = "connect";
+      mode = "preconnect";
       view = "here";
       setOpen(true);
       return;
     }
-    const prof = slugOf(location.pathname) ? readProfile() : null;
+    const prof = onProfile() ? readProfile() : null;
     if (prof && (!invite || clean(invite[1]) === prof.name)) {
       person = prof;
     } else {
@@ -1240,10 +1398,13 @@
       const s = link && slugOf(link.href);
       if (s) person = { slug: s, url: profileUrl(s), name: invite ? clean(invite[1]) : clean(link.innerText).split("\n")[0], title: "", company: "", degree: "", location: "" };
     }
-    if (!person) return;
+    if (!person) { // couldn't tell who: let LinkedIn's Connect go through
+      heldConnect = btn; pressConnect();
+      return;
+    }
     connectPerson = person;
     target = person;
-    mode = "connect";
+    mode = "preconnect";
     view = "here";
     setOpen(true);
   }, true);
@@ -1279,6 +1440,48 @@
   chrome.storage.onChanged.addListener((ch) => { if (ch.posts) { savedPosts = new Set((ch.posts.newValue || []).map((x) => x.id)); repaintPostBars(); } });
   const hash = (t) => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) | 0; return (h >>> 0).toString(36); };
 
+  const BOOKMARK = (on, size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" style="display:block"><path d="M6.5 3.5h11a1 1 0 0 1 1 1v16.2l-6.5-4.4-6.5 4.4V4.5a1 1 0 0 1 1-1z" fill="${on ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  // LinkedIn's menus open on the full pointer sequence, not on a bare click().
+  const press = (el) => {
+    const r = el.getBoundingClientRect();
+    const o = { bubbles: true, cancelable: true, composed: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 0, pointerId: 1, pointerType: "mouse", isPrimary: true, view: window };
+    el.dispatchEvent(new PointerEvent("pointerdown", o)); el.dispatchEvent(new MouseEvent("mousedown", o));
+    el.dispatchEvent(new PointerEvent("pointerup", o)); el.dispatchEvent(new MouseEvent("mouseup", o)); el.dispatchEvent(new MouseEvent("click", o));
+  };
+  // The post's own link. If the page shows its id, use it; otherwise press
+  // ••• → "Copy link to post" and catch the link in page-hook.js (the
+  // clipboard is left alone).
+  async function postLinkOf(rootEl) {
+    if (/\/(feed\/update|posts)\//.test(location.pathname)) return location.href.split("?")[0];
+    for (const n of [rootEl, ...rootEl.querySelectorAll("[componentkey], [id], [data-urn]")]) {
+      for (const at of n.attributes || []) {
+        const m = at.value.match(/urn:li:activity:(\d{10,})|\(activity:(\d{10,}),/);
+        if (m) return `https://www.linkedin.com/feed/update/urn:li:activity:${m[1] || m[2]}/`;
+      }
+    }
+    const menuBtn = rootEl.querySelector("button[aria-label^='Open control menu for post']");
+    if (!menuBtn) return "";
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (url) => {
+        if (done) return; done = true;
+        removeEventListener("message", onMsg);
+        document.documentElement.dataset.acGrabLink = "";
+        if (menuBtn.getAttribute("aria-expanded") === "true") document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        resolve(url || "");
+      };
+      const onMsg = (e) => { if (e.source === window && e.data?.acPostLink) finish(e.data.acPostLink.split("?")[0]); };
+      addEventListener("message", onMsg);
+      document.documentElement.dataset.acGrabLink = "1";
+      press(menuBtn);
+      let tries = 0;
+      const t = setInterval(() => {
+        const mi = [...document.querySelectorAll('[role="menuitem"]')].find((e) => /Copy link to post/i.test(e.innerText || "") && e.offsetParent);
+        if (mi) { clearInterval(t); press(mi); setTimeout(() => finish(""), 1500); }
+        else if (++tries > 15) { clearInterval(t); finish(""); }
+      }, 100);
+    });
+  }
   function readPost(rootEl) {
     const box = rootEl.querySelector('[data-testid="expandable-text-box"]');
     if (!box) return null;
@@ -1315,7 +1518,7 @@
       if (!post || !post.text || el.querySelector("[data-ac-postbar]")) return;
       const bar = document.createElement("div");
       bar.setAttribute("data-ac-postbar", "1");
-      bar.style.cssText = "margin:4px 0 2px;";
+      bar.style.cssText = "margin:2px 0 0;";
       post.box.parentElement.after(bar);
       const sr = bar.attachShadow({ mode: "open" });
       bar._paint = () => {
@@ -1323,24 +1526,142 @@
         // The opening of the text, so the id is the same before and after "… more".
         const id = hash((p.author.url || p.author.name) + "|" + p.text.slice(0, 100));
         const on = savedPosts.has(id);
+        const topics = topicsOf(p.text);
+        const did = commentedPosts.has(id);
+        const relTip = `Relevant: mentions ${topics.join(", ")}. A good comment here puts you in front of the people you want.`;
         sr.innerHTML = `<style>
-          button { font:600 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; border:1px solid ${on ? "#c7d2fe" : "#d1d5db"}; background:${on ? "#eef2ff" : "#fff"}; color:${on ? "#3730a3" : "#374151"}; border-radius:999px; padding:3px 10px; cursor:pointer; }
-          button:hover { border-color:#6366f1; }
-        </style><button title="${on ? "Saved. Claude can review it in the dashboard → Posts. Click to unsave." : "Save this post. Claude reviews it against your ICPs in the dashboard → Posts."}">${on ? "✓ Saved post" : "☆ Save post"}</button>`;
+          :host { display:block; }
+          .r { display:flex; gap:4px; align-items:center; }
+          .i { width:26px; height:26px; display:inline-grid; place-items:center; border-radius:50%; font-size:14px; line-height:1; }
+          button.i { border:none; background:transparent; color:${on ? "#4f46e5" : "#8e8e93"}; cursor:pointer; font-size:16px; padding:0; }
+          button.i:hover { background:#f2f2f7; color:#4f46e5; }
+          .rel { background:#e3f9e9; } .did { background:#eef0ff; }
+        </style><div class="r"><button class="i" title="${on ? "Bookmarked on Agentic Contacts. Click to remove." : "Bookmark on Agentic Contacts"}">${BOOKMARK(on)}</button>${did ? `<span class="i did" title="You commented here. See how many people saw it in the dashboard → Visibility.">💬</span>` : topics.length ? `<span class="i rel" title="${esc(relTip)}">💬</span>` : ""}</div>`;
         sr.querySelector("button").onclick = async (e) => {
           e.preventDefault(); e.stopPropagation();
           if (on) { await send("unsavePost", { id }); return; }
-          // Expand "… more" so the whole text is saved.
-          el.querySelector('[data-testid="expandable-text-button"]')?.click();
-          await sleep(250);
-          const full = readPost(el) || p;
-          await send("savePost", { post: { id, author: full.author, text: full.text, pageUrl: location.href } });
+          await bookmarkPost(el, p);
         };
       };
       bar._paint();
     });
   }
+  // Save a post: whole text ("… more" opened), and its own link.
+  async function bookmarkPost(el, p) {
+    const id = hash((p.author.url || p.author.name) + "|" + p.text.slice(0, 100));
+    el.querySelector('[data-testid="expandable-text-button"]')?.click();
+    await sleep(250);
+    const full = readPost(el) || p;
+    await send("savePost", { post: { id, author: full.author, text: full.text, pageUrl: location.href } });
+    const url = await postLinkOf(el);
+    if (url) await send("setPostUrl", { id, url });
+  }
+  // LinkedIn's own ••• → Save also bookmarks the post here.
+  let menuPost = null;
+  document.addEventListener("click", (e) => {
+    const mb = e.target.closest?.("button[aria-label^='Open control menu for post']");
+    if (mb) { menuPost = postRootOf(mb); return; }
+    const mi = e.target.closest?.('[role="menuitem"]');
+    if (mi && menuPost && clean(mi.innerText) === "Save" && document.documentElement.dataset.acGrabLink !== "1") {
+      const root = menuPost, p = readPost(root);
+      if (p?.text) setTimeout(() => bookmarkPost(root, p), 600);
+    }
+  }, true);
   function repaintPostBars() { document.querySelectorAll("[data-ac-postbar]").forEach((b) => b._paint?.()); }
+
+  // ── Comments: what's relevant, what you said, how visible it was ──
+  const TOPIC_RES = (self.TOPICS || []).map((t) => ({ label: t.label, re: new RegExp(t.re, "i") }));
+  const topicsOf = (text) => TOPIC_RES.filter((t) => t.re.test(text || "")).map((t) => t.label);
+  let commentedPosts = new Set();
+  chrome.storage.local.get("comments").then(({ comments = [] }) => { commentedPosts = new Set(comments.map((c) => c.postId)); repaintPostBars(); }).catch(() => {});
+  chrome.storage.onChanged.addListener((ch) => { if (ch.comments) { commentedPosts = new Set((ch.comments.newValue || []).map((c) => c.postId)); repaintPostBars(); } });
+  const postRootOf = (node) => {
+    let el = node;
+    while (el && el.tagName !== "MAIN" && !(el.querySelector?.("[aria-label*='Repost']") && el.querySelector?.('[data-testid="expandable-text-box"]'))) el = el.parentElement;
+    return el && el.tagName !== "MAIN" ? el : null;
+  };
+  const postIdOf = (p) => hash((p.author.url || p.author.name) + "|" + p.text.slice(0, 100));
+  const EDITOR = '[aria-label^="Text editor for creating"], [contenteditable="true"][role="textbox"]';
+  function captureComment(fromEl) {
+    let wrap = fromEl, ed = null;
+    for (let i = 0; i < 10 && wrap && !ed; i++, wrap = wrap.parentElement) ed = wrap.querySelector?.(EDITOR);
+    const comment = clean(ed?.innerText || "");
+    if (!ed || !comment) return;
+    const root = postRootOf(ed);
+    const p = root && readPost(root);
+    if (!p || !p.text) return;
+    send("logComment", { post: { id: postIdOf(p), author: p.author, text: p.text }, comment, pageUrl: location.href });
+  }
+  // The click on LinkedIn's "Comment" / "Reply" button, before the box clears.
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest?.("button");
+    if (!b || host.contains(b) || !/^(Comment|Reply|Post)$/i.test(clean(b.innerText))) return;
+    let w = b, near = false;
+    for (let i = 0; i < 6 && w; i++, w = w.parentElement) if (w.querySelector?.(EDITOR)) { near = true; break; }
+    if (near) captureComment(b);
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target.closest?.(EDITOR)) captureComment(e.target);
+  }, true);
+
+  // On your Comments activity page: read reactions and impressions of each comment.
+  const relAge = (t) => {
+    const m = String(t).match(/^(\d+)\s*(s|m|h|d|w|mo|yr)$/);
+    if (!m) return new Date().toISOString();
+    const n = +m[1], ms = { s: 1e3, m: 6e4, h: 36e5, d: 864e5, w: 6048e5, mo: 2592e6, yr: 31536e6 }[m[2]];
+    return new Date(Date.now() - n * ms).toISOString();
+  };
+  let syncTimer = null, lastSync = "";
+  function readMyComments() {
+    if (!/^\/in\/[^/]+\/recent-activity\/comments/.test(location.pathname)) return;
+    if (syncTimer) return;
+    syncTimer = setTimeout(() => {
+      syncTimer = null;
+      const items = [];
+      document.querySelectorAll("main [aria-label*='Repost']").forEach((rp) => {
+        let el = rp;
+        while (el.parentElement && el.parentElement.querySelectorAll("[aria-label*='Repost']").length === 1 && el.parentElement.tagName !== "MAIN") el = el.parentElement;
+        const p = readPost(el);
+        if (!p || !p.text) return;
+        el.querySelectorAll("button[aria-label^='View more options for']").forEach((opt) => {
+          let c = opt;
+          for (let i = 0; i < 12 && c && !/impressions?/i.test(c.innerText || ""); i++) c = c.parentElement;
+          // Only your own comment, and only this one (not a box holding several).
+          if (!c || c.querySelectorAll("button[aria-label^='View more options for']").length !== 1 || !/\bYou\b/.test(c.innerText)) return;
+          const lines = c.innerText.split("\n").map(clean).filter(Boolean);
+          const ti = lines.findIndex((l) => /^\d+\s*(s|m|h|d|w|mo|yr)$/.test(l));
+          const body = [];
+          for (const l of lines.slice(ti + 1)) { if (/^(Show translation|Like|Reply|Edited)$/i.test(l) || /^\d[\d,]*$/.test(l) || /impressions?$/i.test(l)) break; body.push(l); }
+          const comment = body.join("\n");
+          if (!comment) return;
+          const num = (re) => { const m = c.innerText.match(re); return m ? Number(m[1].replace(/,/g, "")) : 0; };
+          const reactBtn = [...c.querySelectorAll('[role="button"]')].find((x) => /^\d[\d,]*(\n\d[\d,]*)?$/.test((x.innerText || "").trim()));
+          items.push({
+            postId: postIdOf(p), author: p.author, postText: p.text, comment,
+            at: relAge(lines[ti]), impressions: num(/([\d,]+)\s+impressions?/i),
+            reactions: reactBtn ? Number(reactBtn.innerText.trim().split("\n")[0].replace(/,/g, "")) : 0,
+            replies: num(/([\d,]+)\s+repl(y|ies)/i),
+          });
+        });
+      });
+      const sig = JSON.stringify(items.map((x) => [x.postId, x.reactions, x.impressions, x.replies]));
+      if (items.length && sig !== lastSync) { lastSync = sig; send("syncComments", { items }); }
+    }, 1500);
+  }
+
+  // On your LinkedIn dashboard: save today's profile numbers.
+  let visTimer = null, visDone = "";
+  function readVisibility() {
+    if (!location.pathname.startsWith("/dashboard")) return;
+    if (visTimer || visDone === location.pathname) return;
+    visTimer = setTimeout(() => {
+      visTimer = null;
+      const t = (document.querySelector("main") || document.body).innerText.replace(/\n+/g, " | ");
+      const grab = (label) => { const m = t.match(new RegExp("([\\d,]+) \\| " + label)); return m ? Number(m[1].replace(/,/g, "")) : undefined; };
+      const v = { postImpressions7d: grab("Post impressions"), followers: grab("Total followers"), profileViewers90d: grab("Profile viewers"), searchAppearances: grab("Search appearances") };
+      if (Object.values(v).some((x) => x !== undefined)) { visDone = location.pathname; send("visibilitySnapshot", { v }); }
+    }, 1500);
+  }
 
   // ── Time on LinkedIn ────────────────────────────────────────────────
   // Every 15 s, if this tab is in front and you touched it in the last
@@ -1375,7 +1696,7 @@
       pending = null;
       markKnown();
       decorateCards();
-      decoratePosts();
+      decoratePosts(); readMyComments(); readVisibility(); watchPending();
       onRoute();
       scanAcceptances();
       if (!target) paintTab();
