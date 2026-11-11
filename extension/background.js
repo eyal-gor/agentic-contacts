@@ -61,6 +61,8 @@ async function api(method, path, body) {
 }
 
 // Same rule as the server's normLinkedin: "https://www.linkedin.com/in/Ada-L/?x" → "in/ada-l".
+const hashStr = (t) => { let h = 0; for (const c of String(t)) h = (h * 31 + c.charCodeAt(0)) | 0; return (h >>> 0).toString(36); };
+
 function slugOf(url) {
   const m = String(url || "").toLowerCase().match(/linkedin\.com\/(in|pub)\/([^/?#]+)/);
   if (!m) return null;
@@ -91,6 +93,9 @@ function reasonsOf(notes) {
     .reverse();
 }
 
+// "Say when they accept (2026-11-11): …" — newest last in the notes.
+const sayOf = (notes) => (String(notes || "").split("\n").map((l) => l.match(/^Say when they accept(?: \([^)]*\))?:\s*(.+)$/)).filter(Boolean).at(-1) || [])[1] || "";
+const icpsOf = (tags) => (self.ICPS || []).filter((i) => (tags || []).includes(`icp:${i.id}`)).map((i) => ({ id: i.id, short: i.short, person: i.person }));
 const firstLine = (notes) => String(notes || "").split("\n").map((l) => l.trim()).find(Boolean)?.slice(0, 160) || "";
 
 function summary(c) {
@@ -106,6 +111,9 @@ function summary(c) {
     company: c.company || "",
     tags: c.tags || [],
     reasons: reasonsOf(c.notes),
+    sayLater: sayOf(c.notes),
+    offers: (c.tags || []).filter((t) => t.startsWith("offer:")).map((t) => t.slice(6)),
+    icps: icpsOf(c.tags),
     requested: (c.tags || []).includes("linkedin:requested"),
     followUpAt: c.followUpAt || null,
     followUpNote: c.followUpNote || null,
@@ -135,10 +143,18 @@ async function save(p) {
   const campaign = campaignTag(p.campaign);
   const tags = [...(p.tags || [])];
   if (campaign) tags.push(campaign);
+  if (p.icp && !tags.includes(`icp:${p.icp}`)) tags.push(`icp:${p.icp}`);
+  let offer = null;
+  if (p.offer) {
+    offer = await api("POST", `/offers/${encodeURIComponent(p.offer)}/used`).catch(() => null);
+    tags.push(`offer:${p.offer}`);
+  }
   const notes = [];
   const stamp = [today(), campaign ? campaign.slice(9) : ""].filter(Boolean).join(" · ");
   if (p.reason) notes.push(`Why connect (${stamp}): ${p.reason}`);
   if (p.note) notes.push(p.note);
+  if (offer) notes.push(`Offer (${today()}): ${offer.name}${offer.pitch ? " — " + offer.pitch : ""}`);
+  if (p.sayLater) notes.push(`Say when they accept (${today()}): ${p.sayLater}`);
   if (kind === "requested") tags.push("linkedin:requested");
   if (kind === "inbound") tags.push("linkedin:inbound");
   const body = {
@@ -173,10 +189,21 @@ async function save(p) {
   return lookup(p.url);
 }
 
-async function lookup(url) {
-  const { bySlug } = await contacts();
+// "Timothy Kassis, PhD" and "Timothy Kassis" are the same name.
+const normName = (n) => String(n || "").toLowerCase().replace(/,.*$|\(.*?\)|\b(phd|dr|mr|ms|mrs)\b\.?/g, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean);
+async function lookup(url, name) {
+  const { bySlug, contacts: list } = await contacts();
   const c = bySlug.get(slugOf(url));
-  if (!c) return { found: false };
+  if (!c) {
+    // Saved without a LinkedIn link (e.g. found by research)? Match the name.
+    const want = normName(name);
+    if (want.length < 2) return { found: false };
+    const key = want[0] + " " + want.at(-1);
+    const hits = list.filter((x) => !slugOf(x.linkedin) && (() => { const n = normName(x.name); return n.length >= 2 && n[0] + " " + n.at(-1) === key; })());
+    if (hits.length !== 1) return { found: false };
+    const h = hits[0];
+    return { found: false, candidate: { id: h.id, name: h.name, title: h.title || "", company: h.company || "", why: reasonsOf(h.notes)[0]?.text || firstLine(h.notes), evidence: (String(h.notes || "").match(/^Evidence:\s*(.+)$/m) || [])[1] || "", suggested: (h.tags || []).includes("suggested"), icp: icpsOf(h.tags)[0]?.short || "" } };
+  }
   const fresh = await api("GET", `/contacts/${c.id}`);
   const { interactions } = await api("GET", `/contacts/${c.id}/interactions`).catch(() => ({ interactions: [] }));
   return { found: true, contact: summary(fresh), interactions: (interactions || []).slice(0, 5) };
@@ -261,8 +288,9 @@ async function reviewPost(id) {
   return q;
 }
 
-async function draft({ kind, person = {}, reason, campaign, notes, thread }) {
+async function draft({ kind, person = {}, reason, campaign, notes, thread, offer: offerId }) {
   const { aboutMe = "", pitches = {} } = await chrome.storage.local.get(["aboutMe", "pitches"]);
+  const offer = offerId ? await api("GET", `/offers/${encodeURIComponent(offerId)}`).catch(() => null) : null;
   const camp = campaignTag(campaign).slice(9);
   const pitch = camp ? pitches[camp] || "" : "";
   const what = {
@@ -276,6 +304,7 @@ async function draft({ kind, person = {}, reason, campaign, notes, thread }) {
     "Never invent facts about them or me. If you don't know something, leave it out.",
     aboutMe && `About me: ${aboutMe}`,
     pitch && `What this campaign (${camp}) is about: ${pitch}`,
+    offer && `What I'm offering them: ${offer.name}${offer.pitch ? ". " + offer.pitch : ""}`,
   ].filter(Boolean).join("\n\n");
   const user = [
     `Them: ${[person.name, person.title, person.company, person.location].filter(Boolean).join(" · ")}`,
@@ -307,7 +336,13 @@ const handlers = {
     }
     return out;
   },
-  lookup: ({ url }) => lookup(url),
+  lookup: ({ url, name }) => lookup(url, name),
+  // "This is them": store their LinkedIn on a contact saved without one.
+  async linkProfile({ id, url }) {
+    await api("PATCH", `/contacts/${id}`, { linkedin: url });
+    cache.at = 0;
+    return lookup(url);
+  },
   // Campaigns in use, most-used first: [{ name, count }].
   async campaigns() {
     const { contacts: list } = await contacts();
@@ -392,9 +427,44 @@ const handlers = {
     await api("PATCH", `/contacts/${id}`, patch);
     await api("POST", `/contacts/${id}/interactions`, { channel: "note", summary: "Accepted the LinkedIn connection request" });
     cache.at = 0;
+    // Remind you why, and what you wanted to say: a Chrome notification, and
+    // the panel shows it next time it opens.
+    const plan = { id, name: c.name, url: url || c.linkedin || "", why: reasonsOf(c.notes)[0]?.text || "", say: sayOf(c.notes), icp: icpsOf(c.tags)[0]?.short || "", at: new Date().toISOString() };
+    const { acceptedQueue = [] } = await chrome.storage.local.get("acceptedQueue");
+    await chrome.storage.local.set({ acceptedQueue: [plan, ...acceptedQueue.filter((x) => x.id !== id)].slice(0, 20) });
+    try {
+      chrome.notifications.create("accepted:" + id, {
+        type: "basic", iconUrl: "icon-128.png", priority: 2, requireInteraction: true,
+        title: `${c.name} accepted your request`,
+        message: plan.say ? `You wanted to say: ${plan.say}` : plan.why ? `Why you reached out: ${plan.why}` : "Send a first message.",
+        contextMessage: [plan.icp, plan.say && plan.why ? "Why: " + plan.why : ""].filter(Boolean).join(" · ").slice(0, 120),
+      });
+    } catch {}
     return lookup(url);
   },
   // Tags in use (not campaigns, lists or LinkedIn status), most-used first.
+  // ── Offers: what you're selling someone. Most recently used first. ──
+  // Stored in the Contacts API, so the CLI edits the same list.
+  async offers() {
+    const { offers = [] } = await api("GET", "/offers");
+    return offers;
+  },
+  async saveOffer({ name, pitch, icp }) {
+    if (!String(name || "").trim()) throw new Error("Give the offer a name.");
+    return api("POST", "/offers", { name: name.trim(), pitch: String(pitch || "").trim(), icp: icp || null });
+  },
+  async updateOffer({ id, name, pitch, icp }) {
+    return api("PATCH", `/offers/${encodeURIComponent(id)}`, { name, pitch, icp: icp || null });
+  },
+  async deleteOffer({ id }) {
+    await api("DELETE", `/offers/${encodeURIComponent(id)}`);
+    return { ok: true };
+  },
+  async ackAccepted({ id }) {
+    const { acceptedQueue = [] } = await chrome.storage.local.get("acceptedQueue");
+    await chrome.storage.local.set({ acceptedQueue: acceptedQueue.filter((x) => x.id !== id) });
+    return { ok: true };
+  },
   async tags() {
     const { contacts: list } = await contacts();
     const n = new Map();
@@ -426,11 +496,62 @@ const handlers = {
     await setPosts(posts.slice(0, 500));
     return { saved: true, count: posts.length };
   },
+  async setPostUrl({ id, url }) {
+    const posts = await getPosts();
+    const p = posts.find((x) => x.id === id);
+    if (p) { p.url = url; await setPosts(posts); }
+    return { ok: true };
+  },
   async unsavePost({ id }) {
     await setPosts((await getPosts()).filter((x) => x.id !== id));
     return { ok: true };
   },
   posts: () => getPosts(),
+
+  // ── Comments you left, and how visible they were ──
+  // Recorded when you press Comment on LinkedIn; reactions and impressions
+  // are filled in when you open your Comments activity page.
+  async logComment({ post, comment, pageUrl }) {
+    const { comments = [] } = await chrome.storage.local.get("comments");
+    const id = post.id + ":" + hashStr(comment.slice(0, 60));
+    if (!comments.some((c) => c.id === id)) {
+      comments.unshift({ id, postId: post.id, author: post.author, postText: (post.text || "").slice(0, 400), comment, at: new Date().toISOString(), pageUrl, reactions: 0, impressions: 0, source: "live" });
+      await chrome.storage.local.set({ comments: comments.slice(0, 2000) });
+    }
+    // A comment on someone in your contacts is a touch: put it in their history.
+    const { bySlug } = await contacts().catch(() => ({}));
+    const c = bySlug?.get(slugOf(post.author?.url));
+    if (c) await api("POST", `/contacts/${c.id}/interactions`, { channel: "note", summary: `Commented on their post: “${comment.slice(0, 200)}”` }).catch(() => {});
+    return { ok: true, count: comments.length };
+  },
+  async syncComments({ items }) {
+    const { comments = [] } = await chrome.storage.local.get("comments");
+    let added = 0, updated = 0;
+    const now = new Date().toISOString();
+    for (const it of items) {
+      const key = (t) => String(t || "").replace(/\s+/g, " ").trim().slice(0, 40);
+      let c = comments.find((x) => x.postId === it.postId && key(x.comment) === key(it.comment)) || comments.find((x) => x.postId === it.postId && !x.checkedAt);
+      if (!c) {
+        c = { id: it.postId + ":" + hashStr(it.comment.slice(0, 60)), postId: it.postId, author: it.author, postText: it.postText.slice(0, 400), comment: it.comment, at: it.at, pageUrl: "", source: "imported" };
+        comments.push(c); added++;
+      } else updated++;
+      Object.assign(c, { reactions: it.reactions, impressions: it.impressions, replies: it.replies, checkedAt: now });
+    }
+    comments.sort((a, b) => b.at.localeCompare(a.at));
+    await chrome.storage.local.set({ comments: comments.slice(0, 2000) });
+    return { added, updated };
+  },
+  async visibilitySnapshot({ v }) {
+    const { visibility = {} } = await chrome.storage.local.get("visibility");
+    const d = new Date(); const day = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    visibility[day] = { ...visibility[day], ...v };
+    await chrome.storage.local.set({ visibility });
+    return { ok: true };
+  },
+  async visibility() {
+    const { comments = [], visibility = {} } = await chrome.storage.local.get(["comments", "visibility"]);
+    return { comments, snapshots: visibility };
+  },
   reviewPost: ({ id }) => reviewPost(id),
   // Add the author to Contacts with the post as the reason.
   async postAuthorToContacts({ id }) {
@@ -451,8 +572,8 @@ const handlers = {
 
   // ── Rhythm: daily goals, streak, history, time on LinkedIn ──
   async rhythm() {
-    const { goals: g = {}, time = {} } = await chrome.storage.local.get(["goals", "time"]);
-    const goals = { reach: 5, follow: 3, review: 10, ...g };
+    const { goals: g = {}, time = {}, comments = [] } = await chrome.storage.local.get(["goals", "time", "comments"]);
+    const goals = { reach: 5, follow: 3, review: 10, comment: 3, ...g };
     const { events = [] } = await api("GET", "/events");
     const day = (iso) => {
       const d = new Date(iso);
@@ -474,6 +595,7 @@ const handlers = {
       seen.add(`${d}|${k}|${e.contactId}`);
       (days[d] ||= { reach: 0, follow: 0, review: 0 })[k]++;
     }
+    for (const c of comments) { const d = day(c.at); if (d) { (days[d] ||= { reach: 0, follow: 0, review: 0 }).comment = ((days[d].comment || 0) + 1); } }
     for (const [d, t] of Object.entries(time)) (days[d] ||= { reach: 0, follow: 0, review: 0 }).time = t;
     // Next people to reach: kept leads nobody asked yet, best ICP first.
     const { contacts: list } = await contacts();
@@ -526,6 +648,7 @@ const handlers = {
         id: c.id, name: c.name, title: c.title || "", company: c.company || "",
         campaigns, groups: [...new Set([...campaigns, ...inLists])], stage, level, lost: stage === "lost",
         suggested: t.includes("suggested"),
+        offers: t.filter((x) => x.startsWith("offer:")).map((x) => x.slice(6)),
         icps: t.filter((x) => x.startsWith("icp:")).map((x) => x.slice(4)).filter((x) => self.ICPS.some((i) => i.id === x)),
         notes: t.includes("suggested") ? c.notes || "" : "",
         email: c.email || "",
@@ -538,6 +661,17 @@ const handlers = {
     return { people, pitches, listNames: lists.map((l) => l.name) };
   },
   // Suggested people: keep (they become a lead to reach out to) or skip.
+  async markAsked({ id }) {
+    const c = await api("GET", `/contacts/${id}`);
+    const tags = (c.tags || []).filter((t) => !t.startsWith("stage:"));
+    if (!tags.includes("linkedin:requested")) tags.push("linkedin:requested");
+    tags.push("stage:contacted");
+    const at = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    await api("PATCH", `/contacts/${id}`, { tags, followUpAt: at, followUpNote: "Did they accept? Send a first message." });
+    await api("POST", `/contacts/${id}/interactions`, { channel: "note", summary: "Asked to connect (marked in the dashboard)" });
+    cache.at = 0;
+    return { ok: true };
+  },
   async review({ id, keep }) {
     const c = await api("GET", `/contacts/${id}`);
     const tags = (c.tags || []).filter((t) => t !== "suggested" && !t.startsWith("suggested:"));
@@ -660,4 +794,13 @@ chrome.action.onClicked.addListener(async (tab) => {
   } else {
     chrome.runtime.openOptionsPage();
   }
+});
+
+// Clicking an "accepted" notification opens their profile.
+chrome.notifications?.onClicked.addListener(async (nid) => {
+  if (!nid.startsWith("accepted:")) return;
+  const { acceptedQueue = [] } = await chrome.storage.local.get("acceptedQueue");
+  const p = acceptedQueue.find((x) => "accepted:" + x.id === nid);
+  if (p?.url) chrome.tabs.create({ url: p.url });
+  chrome.notifications.clear(nid);
 });

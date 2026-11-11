@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { contacts } from "./routes/contacts.js";
 import { listsRoute } from "./routes/lists.js";
 import { companiesRoute } from "./routes/companies.js";
+import { offersRoute } from "./routes/offers.js";
 import * as store from "./store.js";
 import * as interactions from "./interactions.js";
 import { requireApiKey, authRoutes, hasSession, appOrigin } from "./auth.js";
@@ -32,6 +33,7 @@ app.route("/auth", authRoutes);
 app.route("/contacts", contacts);
 app.route("/companies", companiesRoute);
 app.route("/lists", listsRoute);
+app.route("/offers", offersRoute);
 
 // Rebuild the duplicate-match index from the tables. Safe to run any time;
 // needed only if rows were written outside the API (e.g. raw D1 SQL).

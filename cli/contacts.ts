@@ -50,6 +50,55 @@ const STAGES = ["lead", "contacted", "call", "trial", "proposal", "won", "lost"]
 const program = new Command();
 program.name("contacts").description("CLI for the Agentic Contacts API");
 
+// --- Offers: what you're selling someone -----------------------------------
+// The LinkedIn extension shows these when you press Connect, most recently
+// used first. A contact you pitched carries the tag `offer:<id>`.
+program
+  .command("offers")
+  .description("list offers, most recently used first")
+  .action(async () => {
+    const data = await api("/offers");
+    if (!data.offers.length) return console.log("No offers yet. Add one: offer-add -n <name> -p <pitch>");
+    for (const o of data.offers) {
+      console.log(`${o.id}  ·  ${o.name}${o.icp ? `  [${o.icp}]` : ""}  ·  used ${o.uses}x${o.lastUsedAt ? `, last ${o.lastUsedAt.slice(0, 10)}` : ""}`);
+      if (o.pitch) console.log(`    ${o.pitch}`);
+    }
+  });
+
+program
+  .command("offer-add")
+  .description("add an offer")
+  .requiredOption("-n, --name <name>", "short name, e.g. \"Cerver for agencies\"")
+  .option("-p, --pitch <pitch>", "one line: what they get")
+  .option("-i, --icp <icp>", "the ICP it's for (e.g. agency-builder)")
+  .action(async (opts) => {
+    const o = await api("/offers", { method: "POST", body: JSON.stringify({ name: opts.name, pitch: opts.pitch, icp: opts.icp ?? null }) });
+    console.log(`Added ${o.id}`);
+  });
+
+program
+  .command("offer-edit <id>")
+  .description("change an offer's name, pitch or ICP")
+  .option("-n, --name <name>", "new name")
+  .option("-p, --pitch <pitch>", "new pitch")
+  .option("-i, --icp <icp>", "ICP id, or \"none\"")
+  .action(async (id, opts) => {
+    const body: Record<string, unknown> = {};
+    if (opts.name) body.name = opts.name;
+    if (opts.pitch !== undefined) body.pitch = opts.pitch;
+    if (opts.icp) body.icp = opts.icp === "none" ? null : opts.icp;
+    const o = await api(`/offers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) });
+    console.log(`Updated ${o.id}: ${o.name}${o.pitch ? " · " + o.pitch : ""}`);
+  });
+
+program
+  .command("offer-rm <id>")
+  .description("delete an offer (contacts keep their offer:<id> tag)")
+  .action(async (id) => {
+    await api(`/offers/${encodeURIComponent(id)}`, { method: "DELETE" });
+    console.log(`Deleted ${id}`);
+  });
+
 // --- Companies / accounts -------------------------------------------------
 program
   .command("companies")

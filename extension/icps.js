@@ -4,6 +4,7 @@
 self.ICPS = [
   {
     id: "agency-builder",
+    short: "Agency builders",
     rank: 1,
     name: "The agency builder",
     person: "Co-founder and lead engineer of a 3–20 person AI agency. Ships Claude or OpenAI agents to clients and runs every client's agents on sandboxes they wired up by hand.",
@@ -19,6 +20,7 @@ self.ICPS = [
   },
   {
     id: "code-running-product",
+    short: "Founders whose product runs AI code",
     rank: 2,
     name: "The founder whose product runs AI code",
     person: "Founder or CTO of a 1–15 person startup whose product runs AI-written code for its users in E2B or Daytona sandboxes. The sandbox bill grows with every user.",
@@ -34,6 +36,7 @@ self.ICPS = [
   },
   {
     id: "coding-school-cto",
+    short: "Coding-school CTOs",
     rank: 3,
     name: "The coding-school CTO",
     person: "CTO of a coding-education platform that starts a lab or terminal for every learner and pays for servers that sit idle between classes.",
@@ -49,6 +52,7 @@ self.ICPS = [
   },
   {
     id: "eval-runner",
+    short: "Eval runners",
     rank: 4,
     name: "The eval runner",
     person: "Research engineer or professor who runs thousands of agent tasks in parallel sandboxes for a benchmark, and rebuilds the bill from logs afterwards.",
@@ -62,4 +66,14 @@ self.ICPS = [
     offer: "Cost per run and caps; their own GPU box and cloud sandboxes behind one API.",
     find: "agent benchmark sandbox Daytona",
   },
+];
+
+// Topics worth a comment: a post that mentions one gets a "Relevant" mark in
+// the feed. Commenting on these keeps you visible to the people above.
+self.TOPICS = [
+  { label: "sandboxes", re: "\\b(sandbox(es|ed)?|e2b|daytona|modal\\.com|firecracker|micro-?vms?)\\b" },
+  { label: "agents", re: "\\b(ai agents?|agentic|agent sdk|claude code|codex|computer use|coding agents?|background agents?|mcp)\\b" },
+  { label: "evals", re: "\\b(evals?|benchmarks?|swe-?bench|terminal-?bench|osworld)\\b" },
+  { label: "AI cost", re: "\\b(token (cost|spend|bill)s?|inference cost|ai spend|llm (cost|bill)s?|gpu (cost|bill)s?)\\b" },
+  { label: "agent infra", re: "\\b(agent (infra|infrastructure|runtime|orchestration)|run(ning)? agents in production|containers? per (user|tenant|customer))\\b" },
 ];
